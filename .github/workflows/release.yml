@@ -36,8 +36,8 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           ruby-versions: "3.4,3.3,3.2"
-        env:
-          AWS_LC_SYS_CMAKE_BUILDER: 1
+        # env:
+        #   AWS_LC_SYS_CMAKE_BUILDER: 1
       - uses: actions/upload-artifact@v4
         with:
           name: cross-gem-${{ matrix.platform }}
