@@ -15,7 +15,7 @@ arrow = { version = "55", features = ["ffi"] }
 arrow-schema = { version = "55", features = ["serde"] }
 chrono = "0.4"
 delta_kernel = "=0.10.0"
-deltalake = { version = "=0.26.2", features = ["azure", "datafusion", "gcs", "s3"] }
+deltalake = { version = "=0.26.2", default-features = false, features = ["azure", "datafusion", "gcs", "native-tls", "s3-native-tls"] }
 futures = "0.3"
 magnus = "0.7"
 num_cpus = "1"
