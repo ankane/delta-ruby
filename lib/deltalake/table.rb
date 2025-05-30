@@ -204,7 +204,12 @@ module DeltaLake
           "DELTA_DYNAMO_TABLE_NAME"
         ]
         storage_options = @storage_options&.reject { |k, _| delta_keys.include?(k.to_s.upcase) }
-        lf = Polars.scan_parquet(sources, storage_options: storage_options, rechunk: rechunk)
+        lf = Polars.scan_parquet(
+          sources,
+          hive_partitioning: !metadata.partition_columns.empty?,
+          storage_options: storage_options,
+          rechunk: rechunk
+        )
 
         if columns
           # by_name requires polars-df > 0.15.0
