@@ -45,7 +45,7 @@ use error::DeltaError;
 use futures::future::join_all;
 
 use magnus::{
-    function, method, prelude::*, typed_data::Obj, Error, Integer, Module, RArray, Ruby,
+    function, method, prelude::*, typed_data::Obj, Error as RbErr, Integer, Module, RArray, Ruby,
     TryConvert, Value,
 };
 use serde_json::Map;
@@ -56,7 +56,7 @@ use crate::merge::RbMergeBuilder;
 use crate::schema::{schema_to_rbobject, Field};
 use crate::utils::rt;
 
-type RbResult<T> = Result<T, Error>;
+type RbResult<T> = Result<T, RbErr>;
 
 enum PartitionFilterValue {
     Single(String),
@@ -177,20 +177,24 @@ impl RawDeltaTable {
     }
 
     pub fn table_uri(&self) -> RbResult<String> {
-        Ok(self._table.borrow().table_uri())
+        self.with_table(|t| Ok(t.table_uri()))
     }
 
     pub fn version(&self) -> RbResult<Option<i64>> {
-        Ok(self._table.borrow().version())
+        self.with_table(|t| Ok(t.version()))
     }
 
     pub fn has_files(&self) -> RbResult<bool> {
-        Ok(self._table.borrow().config.require_files)
+        self.with_table(|t| Ok(t.config.require_files))
     }
 
     pub fn metadata(&self) -> RbResult<RawDeltaTableMetaData> {
-        let binding = self._table.borrow();
-        let metadata = binding.metadata().map_err(RubyError::from)?;
+        let metadata = self.with_table(|t| {
+            t.metadata()
+                .cloned()
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        })?;
         Ok(RawDeltaTableMetaData {
             id: metadata.id().to_string(),
             name: metadata.name().map(String::from),
@@ -202,8 +206,12 @@ impl RawDeltaTable {
     }
 
     pub fn protocol_versions(&self) -> RbResult<(i32, i32, Option<StringVec>, Option<StringVec>)> {
-        let binding = self._table.borrow();
-        let table_protocol = binding.protocol().map_err(RubyError::from)?;
+        let table_protocol = self.with_table(|t| {
+            t.protocol()
+                .cloned()
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        })?;
         Ok((
             table_protocol.min_reader_version(),
             table_protocol.min_writer_version(),
@@ -241,24 +249,22 @@ impl RawDeltaTable {
     }
 
     pub fn get_num_index_cols(&self) -> RbResult<i32> {
-        Ok(self
-            ._table
-            .borrow()
-            .snapshot()
-            .map_err(RubyError::from)?
-            .config()
-            .num_indexed_cols())
+        self.with_table(|t| {
+            Ok(t.snapshot()
+                .map_err(RubyError::from)?
+                .config()
+                .num_indexed_cols())
+        })
     }
 
     pub fn get_stats_columns(&self) -> RbResult<Option<Vec<String>>> {
-        Ok(self
-            ._table
-            .borrow()
-            .snapshot()
-            .map_err(RubyError::from)?
-            .config()
-            .stats_columns()
-            .map(|v| v.iter().map(|v| v.to_string()).collect::<Vec<String>>()))
+        self.with_table(|t| {
+            Ok(t.snapshot()
+                .map_err(RubyError::from)?
+                .config()
+                .stats_columns()
+                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>()))
+        })
     }
 
     pub fn load_with_datetime(&self, ds: String) -> RbResult<()> {
@@ -282,10 +288,11 @@ impl RawDeltaTable {
         if let Some(filters) = partition_filters {
             let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
             Ok(self
-                ._table
-                .borrow()
-                .get_files_by_partitions(&filters)
-                .map_err(RubyError::from)?
+                .with_table(|t| {
+                    t.get_files_by_partitions(&filters)
+                        .map_err(RubyError::from)
+                        .map_err(RbErr::from)
+                })?
                 .into_iter()
                 .map(|p| p.to_string())
                 .collect())
@@ -304,30 +311,34 @@ impl RawDeltaTable {
         &self,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
     ) -> RbResult<Vec<String>> {
-        if !self._table.borrow().config.require_files {
+        if !self.with_table(|t| Ok(t.config.require_files))? {
             return Err(DeltaError::new_err("Table is initiated without files."));
         }
 
         if let Some(filters) = partition_filters {
             let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
-            Ok(self
-                ._table
-                .borrow()
-                .get_file_uris_by_partitions(&filters)
-                .map_err(RubyError::from)?)
+            self.with_table(|t| {
+                t.get_file_uris_by_partitions(&filters)
+                    .map_err(RubyError::from)
+                    .map_err(RbErr::from)
+            })
         } else {
-            Ok(self
-                ._table
-                .borrow()
-                .get_file_uris()
-                .map_err(RubyError::from)?
-                .collect())
+            self.with_table(|t| {
+                Ok(t.get_file_uris()
+                    .map_err(RubyError::from)
+                    .map_err(RbErr::from)?
+                    .collect::<Vec<String>>())
+            })
         }
     }
 
     pub fn schema(&self) -> RbResult<Value> {
-        let binding = self._table.borrow();
-        let schema: &StructType = binding.get_schema().map_err(RubyError::from)?;
+        let schema: StructType = self.with_table(|t| {
+            t.get_schema()
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+                .map(|s| s.to_owned())
+        })?;
         schema_to_rbobject(schema.to_owned())
     }
 
