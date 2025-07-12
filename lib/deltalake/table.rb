@@ -259,8 +259,8 @@ module DeltaLake
       deserialized_metrics.transform_keys(&:to_sym)
     end
 
-    def transaction_versions
-      @table.transaction_versions
+    def transaction_version(app_id)
+      @table.transaction_version(app_id)
     end
 
     # private

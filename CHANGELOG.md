@@ -1,6 +1,7 @@
 ## 0.2.0 (unreleased)
 
 - Updated `deltalake` to 0.27.0
+- Changed `transaction_versions` method to `transaction_version`
 - Fixed `to_polars` method excluding partitioning columns
 - Dropped support for Ruby < 3.2
 

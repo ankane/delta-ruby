@@ -23,6 +23,7 @@ use deltalake::errors::DeltaTableError;
 use deltalake::kernel::transaction::{CommitProperties, TableReference};
 use deltalake::kernel::{scalars::ScalarExt, StructType, Transaction};
 use deltalake::logstore::IORuntime;
+use deltalake::logstore::LogStoreRef;
 use deltalake::operations::add_column::AddColumnBuilder;
 use deltalake::operations::add_feature::AddTableFeatureBuilder;
 use deltalake::operations::collect_sendable_stream;
@@ -44,14 +45,12 @@ use error::DeltaError;
 use futures::future::join_all;
 
 use magnus::{
-    function, method, prelude::*, typed_data::Obj, Error, Integer, Module, RArray, RHash, Ruby,
+    function, method, prelude::*, typed_data::Obj, Error, Integer, Module, RArray, Ruby,
     TryConvert, Value,
 };
 use serde_json::Map;
 
-use crate::error::DeltaProtocolError;
-use crate::error::RbValueError;
-use crate::error::RubyError;
+use crate::error::{DeltaProtocolError, RbValueError, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
 use crate::schema::{schema_to_rbobject, Field};
@@ -116,6 +115,16 @@ impl RawDeltaTableMetaData {
 }
 
 type StringVec = Vec<String>;
+
+impl RawDeltaTable {
+    fn with_table<T>(&self, func: impl Fn(&deltalake::DeltaTable) -> RbResult<T>) -> RbResult<T> {
+        func(&self._table.borrow())
+    }
+
+    fn log_store(&self) -> RbResult<LogStoreRef> {
+        self.with_table(|t| Ok(t.log_store().clone()))
+    }
+}
 
 impl RawDeltaTable {
     pub fn new(
@@ -862,14 +871,13 @@ impl RawDeltaTable {
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
-    pub fn transaction_versions(&self) -> RHash {
-        RHash::from_iter(
-            self._table
-                .borrow()
-                .get_app_transaction_version()
-                .into_iter()
-                .map(|(app_id, transaction)| (app_id, RbTransaction::from(transaction))),
-        )
+    pub fn transaction_version(&self, app_id: String) -> RbResult<Option<i64>> {
+        // NOTE: this will simplify once we have moved logstore onto state.
+        let log_store = self.log_store()?;
+        let snapshot = self.with_table(|t| Ok(t.snapshot().map_err(RubyError::from)?.clone()))?;
+        Ok(rt()
+            .block_on(snapshot.transaction_version(log_store.as_ref(), app_id))
+            .map_err(RubyError::from)?)
     }
 }
 
@@ -1350,8 +1358,8 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     )?;
     class.define_method("repair", method!(RawDeltaTable::repair, 3))?;
     class.define_method(
-        "transaction_versions",
-        method!(RawDeltaTable::transaction_versions, 0),
+        "transaction_version",
+        method!(RawDeltaTable::transaction_version, 1),
     )?;
 
     let class = module.define_class("RawDeltaTableMetaData", ruby.class_object())?;
