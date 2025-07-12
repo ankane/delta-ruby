@@ -1,6 +1,5 @@
 use arrow_schema::ArrowError;
 use deltalake::datafusion::error::DataFusionError;
-use deltalake::protocol::ProtocolError;
 use deltalake::{errors::DeltaTableError, ObjectStoreError};
 use magnus::{exception, Error as RbErr, Module, RModule, Ruby};
 use std::borrow::Cow;
@@ -81,43 +80,18 @@ fn arrow_to_rb(err: ArrowError) -> RbErr {
     }
 }
 
-fn checkpoint_to_rb(err: ProtocolError) -> RbErr {
-    match err {
-        ProtocolError::Arrow { source } => arrow_to_rb(source),
-        ProtocolError::ObjectStore { source } => object_store_to_rb(source),
-        ProtocolError::EndOfLog => DeltaProtocolError::new_err("End of log"),
-        ProtocolError::NoMetaData => DeltaProtocolError::new_err("Table metadata missing"),
-        ProtocolError::CheckpointNotFound => DeltaProtocolError::new_err(err.to_string()),
-        ProtocolError::InvalidField(err) => RbValueError::new_err(err),
-        ProtocolError::InvalidRow(err) => RbValueError::new_err(err),
-        ProtocolError::InvalidDeletionVectorStorageType(err) => RbValueError::new_err(err),
-        ProtocolError::SerializeOperation { source } => RbValueError::new_err(source.to_string()),
-        ProtocolError::ParquetParseError { source } => RbIOError::new_err(source.to_string()),
-        ProtocolError::IO { source } => RbIOError::new_err(source.to_string()),
-        ProtocolError::Generic(msg) => DeltaError::new_err(msg),
-        ProtocolError::Kernel { source } => DeltaError::new_err(source.to_string()),
-    }
-}
-
 fn datafusion_to_rb(err: DataFusionError) -> RbErr {
     DeltaError::new_err(err.to_string())
 }
 
 pub enum RubyError {
     DeltaTable(DeltaTableError),
-    Protocol(ProtocolError),
     DataFusion(DataFusionError),
 }
 
 impl From<DeltaTableError> for RubyError {
     fn from(err: DeltaTableError) -> Self {
         RubyError::DeltaTable(err)
-    }
-}
-
-impl From<ProtocolError> for RubyError {
-    fn from(err: ProtocolError) -> Self {
-        RubyError::Protocol(err)
     }
 }
 
@@ -131,7 +105,6 @@ impl From<RubyError> for RbErr {
     fn from(value: RubyError) -> Self {
         match value {
             RubyError::DeltaTable(err) => inner_to_rb_err(err),
-            RubyError::Protocol(err) => checkpoint_to_rb(err),
             RubyError::DataFusion(err) => datafusion_to_rb(err),
         }
     }

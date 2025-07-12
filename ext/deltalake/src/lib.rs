@@ -86,7 +86,7 @@ struct RawDeltaTableMetaData {
     description: Option<String>,
     partition_columns: Vec<String>,
     created_time: Option<i64>,
-    configuration: HashMap<String, Option<String>>,
+    configuration: HashMap<String, String>,
 }
 
 impl RawDeltaTableMetaData {
@@ -110,7 +110,7 @@ impl RawDeltaTableMetaData {
         self.created_time
     }
 
-    fn configuration(&self) -> HashMap<String, Option<String>> {
+    fn configuration(&self) -> HashMap<String, String> {
         self.configuration.clone()
     }
 }
@@ -171,7 +171,7 @@ impl RawDeltaTable {
         Ok(self._table.borrow().table_uri())
     }
 
-    pub fn version(&self) -> RbResult<i64> {
+    pub fn version(&self) -> RbResult<Option<i64>> {
         Ok(self._table.borrow().version())
     }
 
@@ -183,12 +183,12 @@ impl RawDeltaTable {
         let binding = self._table.borrow();
         let metadata = binding.metadata().map_err(RubyError::from)?;
         Ok(RawDeltaTableMetaData {
-            id: metadata.id.clone(),
-            name: metadata.name.clone(),
-            description: metadata.description.clone(),
-            partition_columns: metadata.partition_columns.clone(),
-            created_time: metadata.created_time,
-            configuration: metadata.configuration.clone(),
+            id: metadata.id().to_string(),
+            name: metadata.name().map(String::from),
+            description: metadata.description().map(String::from),
+            partition_columns: metadata.partition_columns().clone(),
+            created_time: metadata.created_time(),
+            configuration: metadata.configuration().clone(),
         })
     }
 
@@ -196,32 +196,26 @@ impl RawDeltaTable {
         let binding = self._table.borrow();
         let table_protocol = binding.protocol().map_err(RubyError::from)?;
         Ok((
-            table_protocol.min_reader_version,
-            table_protocol.min_writer_version,
-            table_protocol
-                .writer_features
-                .as_ref()
-                .and_then(|features| {
-                    let empty_set = !features.is_empty();
-                    empty_set.then(|| {
-                        features
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<String>>()
-                    })
-                }),
-            table_protocol
-                .reader_features
-                .as_ref()
-                .and_then(|features| {
-                    let empty_set = !features.is_empty();
-                    empty_set.then(|| {
-                        features
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<String>>()
-                    })
-                }),
+            table_protocol.min_reader_version(),
+            table_protocol.min_writer_version(),
+            table_protocol.writer_features().and_then(|features| {
+                let empty_set = !features.is_empty();
+                empty_set.then(|| {
+                    features
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                })
+            }),
+            table_protocol.reader_features().and_then(|features| {
+                let empty_set = !features.is_empty();
+                empty_set.then(|| {
+                    features
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                })
+            }),
         ))
     }
 
@@ -234,12 +228,6 @@ impl RawDeltaTable {
     pub fn get_latest_version(&self) -> RbResult<i64> {
         Ok(rt()
             .block_on(self._table.borrow().get_latest_version())
-            .map_err(RubyError::from)?)
-    }
-
-    pub fn get_earliest_version(&self) -> RbResult<i64> {
-        Ok(rt()
-            .block_on(self._table.borrow().get_earliest_version())
             .map_err(RubyError::from)?)
     }
 
@@ -727,7 +715,7 @@ impl RawDeltaTable {
         let partition_columns: HashSet<&str> = binding
             .metadata()
             .map_err(RubyError::from)?
-            .partition_columns
+            .partition_columns()
             .iter()
             .map(|col| col.as_str())
             .collect();
@@ -1292,10 +1280,6 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     class.define_method(
         "get_latest_version",
         method!(RawDeltaTable::get_latest_version, 0),
-    )?;
-    class.define_method(
-        "get_earliest_version",
-        method!(RawDeltaTable::get_earliest_version, 0),
     )?;
     class.define_method(
         "get_num_index_cols",

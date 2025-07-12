@@ -11,11 +11,11 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-arrow = { version = "55", features = ["ffi"] }
-arrow-schema = { version = "55", features = ["serde"] }
+arrow = { version = "55.2", features = ["ffi"] }
+arrow-schema = { version = "55.2", features = ["serde"] }
 chrono = "0.4"
-delta_kernel = "=0.10.0"
-deltalake = { version = "=0.26.2", features = ["azure", "datafusion", "gcs", "s3"] }
+delta_kernel = "0.13"
+deltalake = { version = "=0.27.0", features = ["azure", "datafusion", "gcs", "s3"] }
 futures = "0.3"
 magnus = "0.7"
 num_cpus = "1"
