@@ -70,7 +70,7 @@ class AlterTest < Minitest::Test
       error = assert_raises(DeltaLake::Error) do
         dt.alter.drop_constraint("a_gt_0")
       end
-      assert_equal "Generic DeltaTable error: Constraint with name: a_gt_0 doesn't exists", error.message
+      assert_equal "Generic DeltaTable error: Constraint with name 'a_gt_0' does not exist.", error.message
 
       dt.alter.drop_constraint("a_gt_0", raise_if_not_exists: false)
     end
