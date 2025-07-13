@@ -1,4 +1,4 @@
-## 0.2.0 (unreleased)
+## 0.2.0 (2025-07-12)
 
 - Updated `deltalake` to 0.27.0
 - Changed `transaction_versions` method to `transaction_version`
