@@ -41,7 +41,7 @@ fn inner_to_rb_err(err: DeltaTableError) -> RbErr {
         DeltaTableError::InvalidJsonLog { .. } => DeltaProtocolError::new_err(err.to_string()),
         DeltaTableError::InvalidStatsJson { .. } => DeltaProtocolError::new_err(err.to_string()),
         DeltaTableError::InvalidData { violations } => {
-            DeltaProtocolError::new_err(format!("Invariant violations: {:?}", violations))
+            DeltaProtocolError::new_err(format!("Invariant violations: {violations:?}"))
         }
 
         // commit errors
