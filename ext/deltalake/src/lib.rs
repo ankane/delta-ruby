@@ -727,6 +727,8 @@ impl RawDeltaTable {
     }
 
     fn get_active_partitions(&self) -> RbResult<RArray> {
+        let ruby = Ruby::get().unwrap();
+
         let binding = self._table.borrow();
         let _column_names: HashSet<&str> = binding
             .get_schema()
@@ -773,7 +775,7 @@ impl RawDeltaTable {
             })
             .collect();
 
-        Ok(RArray::from_iter(active_partitions))
+        Ok(ruby.ary_from_iter(active_partitions))
     }
 
     pub fn create_checkpoint(&self) -> RbResult<()> {

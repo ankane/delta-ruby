@@ -1,7 +1,7 @@
 use arrow_schema::ArrowError;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::{errors::DeltaTableError, ObjectStoreError};
-use magnus::{exception, Error as RbErr, Module, RModule, Ruby};
+use magnus::{Error as RbErr, Module, RModule, Ruby};
 use std::borrow::Cow;
 
 macro_rules! create_exception {
@@ -111,7 +111,7 @@ impl From<RubyError> for RbErr {
 }
 
 macro_rules! create_builtin_exception {
-    ($type:ident, $class:expr) => {
+    ($type:ident, $method:ident) => {
         pub struct $type {}
 
         impl $type {
@@ -119,13 +119,14 @@ macro_rules! create_builtin_exception {
             where
                 T: Into<Cow<'static, str>>,
             {
-                RbErr::new($class, message)
+                let ruby = Ruby::get().unwrap();
+                RbErr::new(ruby.$method(), message)
             }
         }
     };
 }
 
-create_builtin_exception!(RbException, exception::runtime_error());
-create_builtin_exception!(RbIOError, exception::io_error());
-create_builtin_exception!(RbNotImplementedError, exception::not_imp_error());
-create_builtin_exception!(RbValueError, exception::arg_error());
+create_builtin_exception!(RbException, exception_runtime_error);
+create_builtin_exception!(RbIOError, exception_io_error);
+create_builtin_exception!(RbNotImplementedError, exception_not_imp_error);
+create_builtin_exception!(RbValueError, exception_arg_error);

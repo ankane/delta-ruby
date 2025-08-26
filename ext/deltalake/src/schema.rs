@@ -1,20 +1,21 @@
 use deltalake::kernel::{StructField, StructType as DeltaStructType};
-use magnus::{value::ReprValue, Module, RArray, RModule, Ruby, Value};
+use magnus::{value::ReprValue, Module, RModule, Ruby, Value};
 
 use crate::RbResult;
 
 pub fn schema_to_rbobject(schema: DeltaStructType) -> RbResult<Value> {
+    let ruby = Ruby::get().unwrap();
+
     let fields = schema.fields().map(|field| Field {
         inner: field.clone(),
     });
 
-    let rb_schema: Value = Ruby::get()
-        .unwrap()
+    let rb_schema: Value = ruby
         .class_object()
         .const_get::<_, RModule>("DeltaLake")?
         .const_get("Schema")?;
 
-    rb_schema.funcall("new", (RArray::from_iter(fields),))
+    rb_schema.funcall("new", (ruby.ary_from_iter(fields),))
 }
 
 #[magnus::wrap(class = "DeltaLake::Field")]
