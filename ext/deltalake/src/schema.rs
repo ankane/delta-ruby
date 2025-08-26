@@ -3,9 +3,7 @@ use magnus::{value::ReprValue, Module, RModule, Ruby, Value};
 
 use crate::RbResult;
 
-pub fn schema_to_rbobject(schema: DeltaStructType) -> RbResult<Value> {
-    let ruby = Ruby::get().unwrap();
-
+pub fn schema_to_rbobject(schema: DeltaStructType, ruby: &Ruby) -> RbResult<Value> {
     let fields = schema.fields().map(|field| Field {
         inner: field.clone(),
     });

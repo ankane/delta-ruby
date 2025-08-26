@@ -334,14 +334,14 @@ impl RawDeltaTable {
         }
     }
 
-    pub fn schema(&self) -> RbResult<Value> {
-        let schema: StructType = self.with_table(|t| {
+    pub fn schema(ruby: &Ruby, rb_self: &Self) -> RbResult<Value> {
+        let schema: StructType = rb_self.with_table(|t| {
             t.get_schema()
                 .map_err(RubyError::from)
                 .map_err(RbErr::from)
                 .map(|s| s.to_owned())
         })?;
-        schema_to_rbobject(schema.to_owned())
+        schema_to_rbobject(schema.to_owned(), ruby)
     }
 
     pub fn vacuum(
@@ -726,10 +726,8 @@ impl RawDeltaTable {
             .map_err(RubyError::from)?)
     }
 
-    fn get_active_partitions(&self) -> RbResult<RArray> {
-        let ruby = Ruby::get().unwrap();
-
-        let binding = self._table.borrow();
+    fn get_active_partitions(ruby: &Ruby, rb_self: &Self) -> RbResult<RArray> {
+        let binding = rb_self._table.borrow();
         let _column_names: HashSet<&str> = binding
             .get_schema()
             .map_err(|_| DeltaProtocolError::new_err("table does not yet have a schema"))?
