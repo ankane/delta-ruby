@@ -45,8 +45,8 @@ use error::DeltaError;
 use futures::future::join_all;
 
 use magnus::{
-    function, method, prelude::*, typed_data::Obj, Error as RbErr, Integer, Module, RArray, Ruby,
-    TryConvert, Value,
+    function, method, prelude::*, try_convert::TryConvertOwned, typed_data::Obj, Error as RbErr,
+    Integer, Module, RArray, Ruby, TryConvert, Value,
 };
 use serde_json::Map;
 
@@ -72,6 +72,8 @@ impl TryConvert for PartitionFilterValue {
         }
     }
 }
+
+unsafe impl TryConvertOwned for PartitionFilterValue {}
 
 #[magnus::wrap(class = "DeltaLake::RawDeltaTable")]
 struct RawDeltaTable {
