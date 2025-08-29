@@ -39,8 +39,8 @@ class AlterTest < Minitest::Test
       df2 = Polars::DataFrame.new({"a" => [4, 5, 6], "b" => [7, 8, 9]})
       DeltaLake.write(dt, df2, mode: "append")
 
-      expected = Polars::DataFrame.new({"a" => [4, 5, 6, 1, 2, 3], "b" => [7, 8, 9, nil, nil, nil]}, schema_overrides: {"b" => Polars::Int32})
-      assert_frame_equal expected, dt.to_polars
+      expected = Polars::DataFrame.new({"a" => [1, 2, 3, 4, 5, 6], "b" => [nil, nil, nil, 7, 8, 9]}, schema_overrides: {"b" => Polars::Int32})
+      assert_frame_equal expected, dt.to_polars.sort("a")
     end
   end
 
