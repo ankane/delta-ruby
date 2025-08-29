@@ -209,7 +209,8 @@ module DeltaLake
             sources,
             hive_partitioning: true,
             storage_options: storage_options,
-            rechunk: rechunk
+            rechunk: rechunk,
+            allow_missing_columns: true
           )
 
         if columns

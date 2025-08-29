@@ -27,9 +27,16 @@ class AlterTest < Minitest::Test
   def test_add_columns
     df = Polars::DataFrame.new({"a" => [1, 2, 3]})
     with_table(df) do |dt|
-      dt.alter.add_columns([DeltaLake::Field.new("b", "long")])
-
+      dt.alter.add_columns([DeltaLake::Field.new("b", "integer")])
       assert_equal 2, dt.schema.fields.size
+      assert_equal ["a", "b"], dt.schema.fields.map(&:name)
+      assert_equal ["long", "integer"], dt.schema.fields.map(&:type)
+
+      df2 = Polars::DataFrame.new({"a" => [4, 5, 6], "b" => [7, 8, 9]})
+      DeltaLake.write(dt, df2, mode: "append")
+
+      expected = Polars::DataFrame.new({"a" => [4, 5, 6, 1, 2, 3], "b" => [7, 8, 9, nil, nil, nil]})
+      assert_equal expected, dt.to_polars
     end
   end
 
