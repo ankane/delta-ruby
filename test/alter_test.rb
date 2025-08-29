@@ -28,7 +28,6 @@ class AlterTest < Minitest::Test
     df = Polars::DataFrame.new({"a" => [1, 2, 3]})
     with_table(df) do |dt|
       dt.alter.add_columns([DeltaLake::Field.new("b", "integer")])
-      assert_equal 2, dt.schema.fields.size
       assert_equal ["a", "b"], dt.schema.fields.map(&:name)
       assert_equal ["long", "integer"], dt.schema.fields.map(&:type)
 
