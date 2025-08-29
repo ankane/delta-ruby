@@ -31,6 +31,11 @@ class AlterTest < Minitest::Test
       assert_equal ["a", "b"], dt.schema.fields.map(&:name)
       assert_equal ["long", "integer"], dt.schema.fields.map(&:type)
 
+      error = assert_raises(DeltaLake::SchemaMismatchError) do
+        DeltaLake.write(dt, df, mode: "append")
+      end
+      assert_equal "Cannot cast schema, number of fields does not match: 1 vs 2", error.message
+
       df2 = Polars::DataFrame.new({"a" => [4, 5, 6], "b" => [7, 8, 9]})
       DeltaLake.write(dt, df2, mode: "append")
 
