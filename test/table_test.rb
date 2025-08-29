@@ -4,8 +4,8 @@ class TableTest < Minitest::Test
   def test_to_polars
     df = Polars::DataFrame.new({"a" => [1, 2, 3]})
     with_table(df) do |dt|
-      assert_equal df, dt.to_polars
-      assert_equal df, dt.to_polars(eager: false).collect
+      assert_frame_equal df, dt.to_polars
+      assert_frame_equal df, dt.to_polars(eager: false).collect
     end
   end
 
@@ -20,7 +20,7 @@ class TableTest < Minitest::Test
   def test_partition_by
     df = Polars::DataFrame.new({"a" => [1, 2, 3], "b" => [4, 4, 5]})
     with_table(df, partition_by: "b") do |dt|
-      assert_equal df, dt.to_polars
+      assert_frame_equal df, dt.to_polars.sort("a")
     end
   end
 
@@ -113,7 +113,7 @@ class TableTest < Minitest::Test
       assert_equal 1, metrics[:num_copied_rows]
 
       expected = Polars::DataFrame.new({"a" => [1]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars
 
       dt.delete
       assert_empty dt.to_polars
@@ -188,7 +188,7 @@ class TableTest < Minitest::Test
       assert_equal 1, metrics["numRestoredFile"]
 
       assert_equal 2, dt.version
-      assert_equal df, dt.to_polars
+      assert_frame_equal df, dt.to_polars
     end
   end
 

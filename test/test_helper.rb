@@ -4,6 +4,8 @@ require "minitest/autorun"
 require "polars-df"
 
 class Minitest::Test
+  include Polars::Testing
+
   def with_new_table
     prefix = ENV["CLOUD_PREFIX"]
 

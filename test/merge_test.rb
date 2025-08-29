@@ -15,7 +15,7 @@ class MergeTest < Minitest::Test
       assert_equal 1, metrics[:num_target_files_removed]
 
       expected = Polars::DataFrame.new({"x" => [1, 2, 3], "y" => [4, 5, 8]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars.sort("x")
     end
   end
 
@@ -33,7 +33,7 @@ class MergeTest < Minitest::Test
       assert_equal 0, metrics[:num_target_files_removed]
 
       expected = Polars::DataFrame.new({"x" => [1, 2, 3, 7], "y" => [4, 5, 6, 8]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars.sort("x")
     end
   end
 
@@ -51,7 +51,7 @@ class MergeTest < Minitest::Test
       assert_equal 1, metrics[:num_target_files_removed]
 
       expected = Polars::DataFrame.new({"x" => [1, 2], "y" => [4, 5]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars.sort("x")
     end
   end
 
@@ -70,7 +70,7 @@ class MergeTest < Minitest::Test
       assert_equal 1, metrics[:num_target_files_removed]
 
       expected = Polars::DataFrame.new({"x" => [1], "y" => [4]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars
     end
   end
 
@@ -88,7 +88,7 @@ class MergeTest < Minitest::Test
       assert_equal 1, metrics[:num_target_files_removed]
 
       expected = Polars::DataFrame.new({"x" => [1, 2, 3], "y" => [0, 5, 6]})
-      assert_equal expected, dt.to_polars
+      assert_frame_equal expected, dt.to_polars.sort("x")
     end
   end
 end
