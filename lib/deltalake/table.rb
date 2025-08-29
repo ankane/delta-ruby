@@ -195,6 +195,7 @@ module DeltaLake
 
       sources = file_uris
       if sources.empty?
+        # TODO pass schema
         lf = Polars::LazyFrame.new
       else
         delta_keys = [
