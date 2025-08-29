@@ -1430,6 +1430,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     class.define_method("to_i", method!(ArrowArrayStream::to_i, 0))?;
 
     let class = module.define_class("Field", ruby.class_object())?;
+    class.define_singleton_method("new", function!(Field::new, 2))?;
     class.define_method("name", method!(Field::name, 0))?;
     class.define_method("type", method!(Field::get_type, 0))?;
     class.define_method("nullable", method!(Field::nullable, 0))?;
