@@ -27,19 +27,19 @@ class AlterTest < Minitest::Test
   def test_add_columns
     df = Polars::DataFrame.new({"a" => [1, 2, 3]})
     with_table(df) do |dt|
-      dt.alter.add_columns([DeltaLake::Field.new("b", "integer")])
+      dt.alter.add_columns([DeltaLake::Field.new("b", "string")])
       assert_equal ["a", "b"], dt.schema.fields.map(&:name)
-      assert_equal ["long", "integer"], dt.schema.fields.map(&:type)
+      assert_equal ["long", "string"], dt.schema.fields.map(&:type)
 
       error = assert_raises(DeltaLake::SchemaMismatchError) do
         DeltaLake.write(dt, df, mode: "append")
       end
       assert_equal "Cannot cast schema, number of fields does not match: 1 vs 2", error.message
 
-      df2 = Polars::DataFrame.new({"a" => [4, 5, 6], "b" => [7, 8, 9]})
+      df2 = Polars::DataFrame.new({"a" => [4, 5, 6], "b" => ["four", "five", "six"]})
       DeltaLake.write(dt, df2, mode: "append")
 
-      expected = Polars::DataFrame.new({"a" => [1, 2, 3, 4, 5, 6], "b" => [nil, nil, nil, 7, 8, 9]}, schema_overrides: {"b" => Polars::Int32})
+      expected = Polars::DataFrame.new({"a" => [1, 2, 3, 4, 5, 6], "b" => [nil, nil, nil, "four", "five", "six"]})
       assert_frame_equal expected, dt.to_polars.sort("a")
     end
   end
