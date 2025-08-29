@@ -1,7 +1,6 @@
 require "bundler/setup"
 Bundler.require(:default)
 require "minitest/autorun"
-require "polars-df"
 
 class Minitest::Test
   include Polars::Testing
