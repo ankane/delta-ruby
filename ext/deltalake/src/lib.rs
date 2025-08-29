@@ -13,6 +13,7 @@ use std::time;
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use delta_kernel::schema::StructField;
+use delta_kernel::table_properties::DataSkippingNumIndexedCols;
 use deltalake::arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use deltalake::arrow::record_batch::RecordBatchIterator;
 use deltalake::checkpoints::{cleanup_metadata, create_checkpoint};
@@ -21,6 +22,7 @@ use deltalake::datafusion::prelude::SessionContext;
 use deltalake::delta_datafusion::DeltaCdfTableProvider;
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::transaction::{CommitProperties, TableReference};
+use deltalake::kernel::StructDataExt;
 use deltalake::kernel::{scalars::ScalarExt, StructType, Transaction};
 use deltalake::logstore::IORuntime;
 use deltalake::logstore::LogStoreRef;
@@ -40,9 +42,12 @@ use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
 use deltalake::partitions::PartitionFilter;
+use deltalake::table::config::TablePropertiesExt;
+use deltalake::table::state::DeltaTableState;
 use deltalake::{DeltaOps, DeltaResult};
 use error::DeltaError;
 use futures::future::join_all;
+use futures::TryStreamExt;
 
 use magnus::{
     function, method, prelude::*, try_convert::TryConvertOwned, typed_data::Obj, Error as RbErr,
@@ -50,7 +55,7 @@ use magnus::{
 };
 use serde_json::Map;
 
-use crate::error::{DeltaProtocolError, RbValueError, RubyError};
+use crate::error::{RbValueError, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
 use crate::schema::{schema_to_rbobject, Field};
@@ -123,6 +128,15 @@ impl RawDeltaTable {
         func(&self._table.borrow())
     }
 
+    fn cloned_state(&self) -> RbResult<DeltaTableState> {
+        self.with_table(|t| {
+            t.snapshot()
+                .cloned()
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        })
+    }
+
     fn log_store(&self) -> RbResult<LogStoreRef> {
         self.with_table(|t| Ok(t.log_store().clone()))
     }
@@ -192,10 +206,8 @@ impl RawDeltaTable {
 
     pub fn metadata(&self) -> RbResult<RawDeltaTableMetaData> {
         let metadata = self.with_table(|t| {
-            t.metadata()
-                .cloned()
-                .map_err(RubyError::from)
-                .map_err(RbErr::from)
+            let snapshot = t.snapshot().map_err(RubyError::from).map_err(RbErr::from)?;
+            Ok(snapshot.metadata().clone())
         })?;
         Ok(RawDeltaTableMetaData {
             id: metadata.id().to_string(),
@@ -209,10 +221,8 @@ impl RawDeltaTable {
 
     pub fn protocol_versions(&self) -> RbResult<(i32, i32, Option<StringVec>, Option<StringVec>)> {
         let table_protocol = self.with_table(|t| {
-            t.protocol()
-                .cloned()
-                .map_err(RubyError::from)
-                .map_err(RbErr::from)
+            let snapshot = t.snapshot().map_err(RubyError::from).map_err(RbErr::from)?;
+            Ok(snapshot.protocol().clone())
         })?;
         Ok((
             table_protocol.min_reader_version(),
@@ -252,10 +262,15 @@ impl RawDeltaTable {
 
     pub fn get_num_index_cols(&self) -> RbResult<i32> {
         self.with_table(|t| {
-            Ok(t.snapshot()
+            let n_cols = t
+                .snapshot()
                 .map_err(RubyError::from)?
                 .config()
-                .num_indexed_cols())
+                .num_indexed_cols();
+            Ok(match n_cols {
+                DataSkippingNumIndexedCols::NumColumns(n_cols) => n_cols as i32,
+                DataSkippingNumIndexedCols::AllColumns => -1,
+            })
         })
     }
 
@@ -264,7 +279,8 @@ impl RawDeltaTable {
             Ok(t.snapshot()
                 .map_err(RubyError::from)?
                 .config()
-                .stats_columns()
+                .data_skipping_stats_columns
+                .as_ref()
                 .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<String>>()))
         })
     }
@@ -291,9 +307,12 @@ impl RawDeltaTable {
             let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
             Ok(self
                 .with_table(|t| {
-                    t.get_files_by_partitions(&filters)
-                        .map_err(RubyError::from)
-                        .map_err(RbErr::from)
+                    rt().block_on(async {
+                        t.get_files_by_partitions(&filters)
+                            .await
+                            .map_err(RubyError::from)
+                            .map_err(RbErr::from)
+                    })
                 })?
                 .into_iter()
                 .map(|p| p.to_string())
@@ -302,8 +321,9 @@ impl RawDeltaTable {
             Ok(self
                 ._table
                 .borrow()
-                .get_files_iter()
+                .snapshot()
                 .map_err(RubyError::from)?
+                .file_paths_iter()
                 .map(|f| f.to_string())
                 .collect())
         }
@@ -320,9 +340,12 @@ impl RawDeltaTable {
         if let Some(filters) = partition_filters {
             let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
             self.with_table(|t| {
-                t.get_file_uris_by_partitions(&filters)
-                    .map_err(RubyError::from)
-                    .map_err(RbErr::from)
+                rt().block_on(async {
+                    t.get_file_uris_by_partitions(&filters)
+                        .await
+                        .map_err(RubyError::from)
+                        .map_err(RbErr::from)
+                })
             })
         } else {
             self.with_table(|t| {
@@ -336,10 +359,8 @@ impl RawDeltaTable {
 
     pub fn schema(ruby: &Ruby, rb_self: &Self) -> RbResult<Value> {
         let schema: StructType = rb_self.with_table(|t| {
-            t.get_schema()
-                .map_err(RubyError::from)
-                .map_err(RbErr::from)
-                .map(|s| s.to_owned())
+            let snapshot = t.snapshot().map_err(RubyError::from).map_err(RbErr::from)?;
+            Ok(snapshot.schema().clone())
         })?;
         schema_to_rbobject(schema.to_owned(), ruby)
     }
@@ -380,7 +401,7 @@ impl RawDeltaTable {
     pub fn compact_optimize(
         &self,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
-        target_size: Option<i64>,
+        target_size: Option<u64>,
         max_concurrent_tasks: Option<usize>,
         min_commit_interval: Option<u64>,
         writer_properties: Option<RbWriterProperties>,
@@ -429,7 +450,7 @@ impl RawDeltaTable {
         &self,
         z_order_columns: Vec<String>,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
-        target_size: Option<i64>,
+        target_size: Option<u64>,
         max_concurrent_tasks: Option<usize>,
         max_spill_size: usize,
         min_commit_interval: Option<u64>,
@@ -727,16 +748,17 @@ impl RawDeltaTable {
     }
 
     fn get_active_partitions(ruby: &Ruby, rb_self: &Self) -> RbResult<RArray> {
-        let binding = rb_self._table.borrow();
-        let _column_names: HashSet<&str> = binding
-            .get_schema()
-            .map_err(|_| DeltaProtocolError::new_err("table does not yet have a schema"))?
-            .fields()
-            .map(|field| field.name().as_str())
-            .collect();
-        let partition_columns: HashSet<&str> = binding
-            .metadata()
-            .map_err(RubyError::from)?
+        let schema = rb_self.with_table(|t| {
+            let snapshot = t.snapshot().map_err(RubyError::from).map_err(RbErr::from)?;
+            Ok(snapshot.schema().clone())
+        })?;
+        let metadata = rb_self.with_table(|t| {
+            let snapshot = t.snapshot().map_err(RubyError::from).map_err(RbErr::from)?;
+            Ok(snapshot.metadata().clone())
+        })?;
+        let _column_names: HashSet<&str> =
+            schema.fields().map(|field| field.name().as_str()).collect();
+        let partition_columns: HashSet<&str> = metadata
             .partition_columns()
             .iter()
             .map(|col| col.as_str())
@@ -746,12 +768,15 @@ impl RawDeltaTable {
 
         let partition_columns: Vec<&str> = partition_columns.into_iter().collect();
 
-        let adds = binding
-            .snapshot()
-            .map_err(RubyError::from)?
-            .get_active_add_actions_by_partitions(&converted_filters)
-            .map_err(RubyError::from)?
-            .collect::<Result<Vec<_>, _>>()
+        let state = rb_self.cloned_state()?;
+        let log_store = rb_self.log_store()?;
+        let adds: Vec<_> = rt()
+            .block_on(async {
+                state
+                    .get_active_add_actions_by_partitions(&log_store, &converted_filters)
+                    .try_collect()
+                    .await
+            })
             .map_err(RubyError::from)?;
         let active_partitions: HashSet<Vec<(&str, Option<String>)>> = adds
             .iter()
@@ -759,14 +784,15 @@ impl RawDeltaTable {
                 Ok::<_, RubyError>(
                     partition_columns
                         .iter()
-                        .flat_map(|col| {
-                            Ok::<_, RubyError>((
+                        .map(|col| {
+                            (
                                 *col,
                                 add.partition_values()
-                                    .map_err(RubyError::from)?
-                                    .get(*col)
+                                    .and_then(|v| {
+                                        v.index_of(*col).and_then(|idx| v.value(idx).cloned())
+                                    })
                                     .map(|v| v.serialize()),
-                            ))
+                            )
                         })
                         .collect(),
                 )
@@ -791,15 +817,20 @@ impl RawDeltaTable {
     }
 
     pub fn get_add_file_sizes(&self) -> RbResult<HashMap<String, i64>> {
-        Ok(self
-            ._table
-            .borrow()
-            .snapshot()
-            .map_err(RubyError::from)?
-            .eager_snapshot()
-            .files()
-            .map(|f| (f.path().to_string(), f.size()))
-            .collect::<HashMap<String, i64>>())
+        self.with_table(|t| {
+            let log_store = t.log_store();
+            let sizes: HashMap<String, i64> = rt()
+                .block_on(async {
+                    t.snapshot()?
+                        .snapshot()
+                        .files(&log_store, None)
+                        .map_ok(|f| (f.path().to_string(), f.size()))
+                        .try_collect()
+                        .await
+                })
+                .map_err(RubyError::from)?;
+            Ok(sizes)
+        })
     }
 
     pub fn delete(

@@ -197,7 +197,7 @@ class TableTest < Minitest::Test
       error = assert_raises(DeltaLake::TableNotFoundError) do
         DeltaLake::Table.new(table_uri)
       end
-      assert_equal "no log files", error.message
+      assert_equal "Generic delta kernel error: No files in log segment", error.message
       assert_equal false, DeltaLake::Table.exists?(table_uri)
     end
   end
