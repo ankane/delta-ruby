@@ -789,7 +789,7 @@ impl RawDeltaTable {
                                 *col,
                                 add.partition_values()
                                     .and_then(|v| {
-                                        v.index_of(*col).and_then(|idx| v.value(idx).cloned())
+                                        v.index_of(col).and_then(|idx| v.value(idx).cloned())
                                     })
                                     .map(|v| v.serialize()),
                             )
