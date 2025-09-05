@@ -5,6 +5,18 @@ require "minitest/autorun"
 class Minitest::Test
   include Polars::Testing
 
+  def setup
+    GC.stress = true if stress?
+  end
+
+  def teardown
+    GC.stress = false if stress?
+  end
+
+  def stress?
+    ENV["STRESS"]
+  end
+
   def with_new_table
     prefix = ENV["CLOUD_PREFIX"]
 
