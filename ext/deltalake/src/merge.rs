@@ -4,9 +4,9 @@ use deltalake::arrow::ffi_stream::ArrowArrayStreamReader;
 use deltalake::datafusion::catalog::TableProvider;
 use deltalake::datafusion::datasource::MemTable;
 use deltalake::datafusion::prelude::SessionContext;
+use deltalake::kernel::EagerSnapshot;
 use deltalake::logstore::LogStoreRef;
 use deltalake::operations::merge::MergeBuilder;
-use deltalake::table::state::DeltaTableState;
 use deltalake::{DeltaResult, DeltaTable};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ impl RbMergeBuilder {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         log_store: LogStoreRef,
-        snapshot: DeltaTableState,
+        snapshot: EagerSnapshot,
         source: ArrowArrayStreamReader,
         predicate: String,
         source_alias: Option<String>,

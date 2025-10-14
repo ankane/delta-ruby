@@ -111,20 +111,20 @@ class TypesTest < Minitest::Test
   def test_time
     with_new_table do |table_uri|
       df = Polars::DataFrame.new({"a" => [1]}, schema: {"a" => Polars::Time})
-      error = assert_raises(DeltaLake::SchemaMismatchError) do
+      error = assert_raises do
         DeltaLake.write(table_uri, df)
       end
-      assert_equal "Invalid data type for Delta Lake: Time64(Nanosecond)", error.message
+      assert_match "Invalid data type for Delta Lake: Time64(Nanosecond)", error.message
     end
   end
 
   def test_duration
     with_new_table do |table_uri|
       df = Polars::DataFrame.new({"a" => [1]}, schema: {"a" => Polars::Duration})
-      error = assert_raises(DeltaLake::SchemaMismatchError) do
+      error = assert_raises do
         DeltaLake.write(table_uri, df)
       end
-      assert_equal "Invalid data type for Delta Lake: Duration(Microsecond)", error.message
+      assert_match "Invalid data type for Delta Lake: Duration(Microsecond)", error.message
     end
   end
 

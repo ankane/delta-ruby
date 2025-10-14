@@ -2,10 +2,11 @@ use deltalake::kernel::{
     DataType, PrimitiveType as DeltaPrimitive, StructField, StructType as DeltaStructType,
 };
 use magnus::{value::ReprValue, Module, RModule, Ruby, TryConvert, Value};
+use std::sync::Arc;
 
 use crate::{RbResult, RbValueError};
 
-pub fn schema_to_rbobject(schema: DeltaStructType, ruby: &Ruby) -> RbResult<Value> {
+pub fn schema_to_rbobject(schema: Arc<DeltaStructType>, ruby: &Ruby) -> RbResult<Value> {
     let fields = schema.fields().map(|field| Field {
         inner: field.clone(),
     });
