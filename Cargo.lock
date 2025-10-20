@@ -1924,7 +1924,7 @@ dependencies = [
  "arrow-schema",
  "chrono",
  "delta_kernel",
- "deltalake 0.29.0",
+ "deltalake 0.29.1",
  "futures",
  "magnus",
  "num_cpus",
@@ -1935,9 +1935,9 @@ dependencies = [
 
 [[package]]
 name = "deltalake"
-version = "0.29.0"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ae322ff91049738d9e6509f6ccb7e773d0cf06e672458c88a975f99b7078fe"
+checksum = "f87f863437101a6d117660140100186a6522ec2cbba421de42e649c37bbfc963"
 dependencies = [
  "delta_kernel",
  "deltalake-aws",
@@ -2769,7 +2769,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.4",
+ "hashbrown 0.16.0",
 ]
 
 [[package]]
