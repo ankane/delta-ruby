@@ -5,4 +5,4 @@ gemspec
 gem "rake"
 gem "rake-compiler"
 gem "minitest"
-gem "polars-df", ">= 0.15.0"
+gem "polars-df", ">= 0.15"
