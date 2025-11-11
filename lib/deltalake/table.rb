@@ -205,13 +205,21 @@ module DeltaLake
           "DELTA_DYNAMO_TABLE_NAME"
         ]
         storage_options = @storage_options&.reject { |k, _| delta_keys.include?(k.to_s.upcase) }
+
+        scan_options =
+          if Gem::Version.new(Polars::VERSION) >= Gem::Version.new("0.24")
+            {missing_columns: "insert"}
+          else
+            {allow_missing_columns: true}
+          end
+
         lf =
           Polars.scan_parquet(
             sources,
             hive_partitioning: true,
             storage_options: storage_options,
             rechunk: rechunk,
-            allow_missing_columns: true
+            **scan_options
           )
 
         if columns
