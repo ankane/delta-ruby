@@ -13,7 +13,7 @@ class TypesTest < Minitest::Test
       "uint64" => Polars::UInt64,
       "float32" => Polars::Float32,
       "float64" => Polars::Float64,
-      "decimal" => Polars::Decimal,
+      "decimal" => Polars::Decimal.new,
       "boolean" => Polars::Boolean,
       "date" => Polars::Date,
       "datetime_ms" => Polars::Datetime.new("ms"),
