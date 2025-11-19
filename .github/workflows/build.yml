@@ -2,7 +2,15 @@ name: build
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - ruby: 3.4
+          #   os: ubuntu-latest
+          - ruby: 3.2
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/cache@v4
@@ -14,7 +22,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.4
+          ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      # https://github.com/oxidize-rb/rb-sys/issues/268
+      - if: ${{ startsWith(matrix.os, 'windows') }}
+        run: echo "RUST_TARGET=x86_64-pc-windows-gnu" >> "$env:GITHUB_ENV"
       - run: bundle exec rake compile
       - run: bundle exec rake test
