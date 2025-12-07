@@ -1934,23 +1934,6 @@ dependencies = [
 
 [[package]]
 name = "deltalake"
-version = "0.2.4"
-dependencies = [
- "arrow",
- "arrow-schema",
- "chrono",
- "delta_kernel",
- "deltalake 0.29.4",
- "futures",
- "magnus",
- "num_cpus",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "deltalake"
 version = "0.29.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09169ef5ecf35911f5f1c3117844a4e00da1edcce58fe8593a237761525f6e3a"
@@ -2084,6 +2067,23 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "deltalake-ruby"
+version = "0.2.4"
+dependencies = [
+ "arrow",
+ "arrow-schema",
+ "chrono",
+ "delta_kernel",
+ "deltalake",
+ "futures",
+ "magnus",
+ "num_cpus",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
