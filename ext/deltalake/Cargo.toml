@@ -8,6 +8,7 @@ rust-version = "1.82"
 publish = false
 
 [lib]
+name = "deltalake"
 crate-type = ["cdylib"]
 
 [dependencies]

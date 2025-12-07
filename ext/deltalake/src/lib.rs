@@ -1242,7 +1242,7 @@ impl ArrowArrayStream {
     }
 }
 
-#[magnus::init]
+#[magnus::init(name = "deltalake")]
 fn init(ruby: &Ruby) -> RbResult<()> {
     deltalake::aws::register_handlers(None);
     deltalake::azure::register_handlers(None);
