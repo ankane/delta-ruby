@@ -1,3 +1,7 @@
+## 0.2.6 (unreleased)
+
+- Fixed gem size
+
 ## 0.2.5 (2025-12-19)
 
 - Updated `deltalake` to 0.29.4

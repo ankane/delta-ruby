@@ -30,8 +30,9 @@ Rake::ExtensionTask.new("deltalake", gemspec) do |ext|
 end
 
 task :remove_ext do
-  path = "lib/deltalake/deltalake.bundle"
-  File.unlink(path) if File.exist?(path)
+  Dir["lib/deltalake/deltalake.{bundle,so}"].each do |path|
+    File.unlink(path)
+  end
 end
 
 Rake::Task["build"].enhance [:remove_ext]
