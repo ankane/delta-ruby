@@ -1,3 +1,7 @@
+## 0.2.7 (unreleased)
+
+- Added support for Ruby 4.0
+
 ## 0.2.6 (2025-12-19)
 
 - Fixed gem size
