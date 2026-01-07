@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "deltalake-ruby"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "arrow",
  "arrow-schema",
