@@ -92,26 +92,38 @@ module DeltaLake
 
       data = Utils.convert_data(data)
 
-      write_deltalake_rust(
-        table_uri,
-        data,
-        mode,
-        table&._table,
-        schema_mode,
-        partition_by,
-        predicate,
-        target_file_size,
-        name,
-        description,
-        configuration,
-        storage_options,
-        writer_properties,
-        commit_properties,
-        post_commithook_properties
-      )
-
       if table
-        table.update_incremental
+        table._table.write(
+          data,
+          mode,
+          schema_mode,
+          partition_by,
+          predicate,
+          target_file_size,
+          name,
+          description,
+          configuration,
+          writer_properties,
+          commit_properties,
+          post_commithook_properties
+        )
+      else
+        write_deltalake_rust(
+          table_uri,
+          data,
+          mode,
+          schema_mode,
+          partition_by,
+          predicate,
+          target_file_size,
+          name,
+          description,
+          configuration,
+          storage_options,
+          writer_properties,
+          commit_properties,
+          post_commithook_properties
+        )
       end
     end
 

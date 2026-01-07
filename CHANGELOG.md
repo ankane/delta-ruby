@@ -1,5 +1,6 @@
 ## 0.2.7 (unreleased)
 
+- Updated `deltalake` to 0.30.0
 - Added support for Ruby 4.0
 
 ## 0.2.6 (2025-12-19)

@@ -114,7 +114,7 @@ class TypesTest < Minitest::Test
       error = assert_raises do
         DeltaLake.write(table_uri, df)
       end
-      assert_match "Invalid data type for Delta Lake: Time64(Nanosecond)", error.message
+      assert_match "Invalid data type for Delta Lake: Time64(ns)", error.message
     end
   end
 
@@ -124,7 +124,7 @@ class TypesTest < Minitest::Test
       error = assert_raises do
         DeltaLake.write(table_uri, df)
       end
-      assert_match "Invalid data type for Delta Lake: Duration(Microsecond)", error.message
+      assert_match "Invalid data type for Delta Lake: Duration(µs)", error.message
     end
   end
 

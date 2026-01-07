@@ -4,13 +4,6 @@ mod merge;
 mod schema;
 mod utils;
 
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::future::IntoFuture;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time;
-
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use delta_kernel::schema::StructField;
 use delta_kernel::table_properties::DataSkippingNumIndexedCols;
@@ -26,35 +19,31 @@ use deltalake::kernel::{scalars::ScalarExt, Transaction};
 use deltalake::kernel::{EagerSnapshot, StructDataExt};
 use deltalake::logstore::IORuntime;
 use deltalake::logstore::LogStoreRef;
-use deltalake::operations::add_column::AddColumnBuilder;
-use deltalake::operations::add_feature::AddTableFeatureBuilder;
 use deltalake::operations::collect_sendable_stream;
-use deltalake::operations::constraints::ConstraintBuilder;
-use deltalake::operations::delete::DeleteBuilder;
-use deltalake::operations::drop_constraints::DropConstraintBuilder;
-use deltalake::operations::filesystem_check::FileSystemCheckBuilder;
-use deltalake::operations::load_cdf::CdfLoadBuilder;
-use deltalake::operations::optimize::{OptimizeBuilder, OptimizeType};
-use deltalake::operations::restore::RestoreBuilder;
-use deltalake::operations::set_tbl_properties::SetTablePropertiesBuilder;
-use deltalake::operations::vacuum::VacuumBuilder;
+use deltalake::operations::optimize::{create_session_state_for_optimize, OptimizeType};
 use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
 use deltalake::partitions::PartitionFilter;
 use deltalake::table::config::TablePropertiesExt;
-use deltalake::{DeltaOps, DeltaResult};
+use deltalake::table::state::DeltaTableState;
+use deltalake::{DeltaResult, DeltaTable};
 use error::DeltaError;
 use futures::future::join_all;
 use futures::TryStreamExt;
-
 use magnus::{
     function, method, prelude::*, try_convert::TryConvertOwned, typed_data::Obj, Error as RbErr,
     Integer, Module, RArray, Ruby, TryConvert, Value,
 };
 use serde_json::Map;
+use std::collections::{HashMap, HashSet};
+use std::future::IntoFuture;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::time;
+use uuid::Uuid;
 
-use crate::error::{RbValueError, RubyError};
+use crate::error::{to_rt_err, RbRuntimeError, RbValueError, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
 use crate::schema::{schema_to_rbobject, Field};
@@ -81,7 +70,7 @@ unsafe impl TryConvertOwned for PartitionFilterValue {}
 
 #[magnus::wrap(class = "DeltaLake::RawDeltaTable")]
 struct RawDeltaTable {
-    _table: RefCell<deltalake::DeltaTable>,
+    _table: Arc<Mutex<deltalake::DeltaTable>>,
 }
 
 #[magnus::wrap(class = "DeltaLake::RawDeltaTableMetaData")]
@@ -124,7 +113,10 @@ type StringVec = Vec<String>;
 
 impl RawDeltaTable {
     fn with_table<T>(&self, func: impl Fn(&deltalake::DeltaTable) -> RbResult<T>) -> RbResult<T> {
-        func(&self._table.borrow())
+        match self._table.lock() {
+            Ok(table) => func(&table),
+            Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+        }
     }
 
     fn cloned_state(&self) -> RbResult<EagerSnapshot> {
@@ -140,6 +132,15 @@ impl RawDeltaTable {
     fn log_store(&self) -> RbResult<LogStoreRef> {
         self.with_table(|t| Ok(t.log_store().clone()))
     }
+
+    fn set_state(&self, state: Option<DeltaTableState>) -> RbResult<()> {
+        let mut original = self
+            ._table
+            .lock()
+            .map_err(|e| RbRuntimeError::new_err(e.to_string()))?;
+        original.state = state;
+        Ok(())
+    }
 }
 
 impl RawDeltaTable {
@@ -152,7 +153,7 @@ impl RawDeltaTable {
     ) -> RbResult<Self> {
         let table_url = deltalake::table::builder::parse_table_uri(table_uri)
             .map_err(error::RubyError::from)?;
-        let mut builder = deltalake::DeltaTableBuilder::from_uri(table_url)
+        let mut builder = deltalake::DeltaTableBuilder::from_url(table_url)
             .map_err(error::RubyError::from)?
             .with_io_runtime(IORuntime::default());
 
@@ -173,7 +174,7 @@ impl RawDeltaTable {
 
         let table = rt().block_on(builder.load()).map_err(RubyError::from)?;
         Ok(RawDeltaTable {
-            _table: RefCell::new(table),
+            _table: Arc::new(Mutex::new(table)),
         })
     }
 
@@ -183,7 +184,7 @@ impl RawDeltaTable {
     ) -> RbResult<bool> {
         let table_url = deltalake::table::builder::ensure_table_uri(table_uri)
             .map_err(|_| RbValueError::new_err("Invalid table URI"))?;
-        let mut builder = deltalake::DeltaTableBuilder::from_uri(table_url)
+        let mut builder = deltalake::DeltaTableBuilder::from_url(table_url)
             .map_err(|_| RbValueError::new_err("Failed to create table builder"))?;
         if let Some(storage_options) = storage_options {
             builder = builder.with_storage_options(storage_options)
@@ -199,7 +200,7 @@ impl RawDeltaTable {
     }
 
     pub fn table_uri(&self) -> RbResult<String> {
-        self.with_table(|t| Ok(t.table_uri()))
+        self.with_table(|t| Ok(t.table_url().to_string()))
     }
 
     pub fn version(&self) -> RbResult<Option<i64>> {
@@ -255,15 +256,32 @@ impl RawDeltaTable {
     }
 
     pub fn load_version(&self, version: i64) -> RbResult<()> {
-        Ok(rt()
-            .block_on(self._table.borrow_mut().load_version(version))
-            .map_err(RubyError::from)?)
+        #[allow(clippy::await_holding_lock)]
+        rt().block_on(async {
+            let mut table = self
+                ._table
+                .lock()
+                .map_err(|e| RbRuntimeError::new_err(e.to_string()))?;
+            (*table)
+                .load_version(version)
+                .await
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        })
     }
 
     pub fn get_latest_version(&self) -> RbResult<i64> {
-        Ok(rt()
-            .block_on(self._table.borrow().get_latest_version())
-            .map_err(RubyError::from)?)
+        #[allow(clippy::await_holding_lock)]
+        rt().block_on(async {
+            match self._table.lock() {
+                Ok(table) => table
+                    .get_latest_version()
+                    .await
+                    .map_err(RubyError::from)
+                    .map_err(RbErr::from),
+                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+            }
+        })
     }
 
     pub fn get_num_index_cols(&self) -> RbResult<i32> {
@@ -296,9 +314,18 @@ impl RawDeltaTable {
             DateTime::<Utc>::from(DateTime::<FixedOffset>::parse_from_rfc3339(&ds).map_err(
                 |err| RbValueError::new_err(format!("Failed to parse datetime string: {err}")),
             )?);
-        Ok(rt()
-            .block_on(self._table.borrow_mut().load_with_datetime(datetime))
-            .map_err(RubyError::from)?)
+        #[allow(clippy::await_holding_lock)]
+        rt().block_on(async {
+            let mut table = self
+                ._table
+                .lock()
+                .map_err(|e| RbRuntimeError::new_err(e.to_string()))?;
+            (*table)
+                .load_with_datetime(datetime)
+                .await
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        })
     }
 
     pub fn files(
@@ -324,14 +351,14 @@ impl RawDeltaTable {
                 .map(|p| p.to_string())
                 .collect())
         } else {
-            Ok(self
-                ._table
-                .borrow()
-                .snapshot()
-                .map_err(RubyError::from)?
-                .file_paths_iter()
-                .map(|f| f.to_string())
-                .collect())
+            match self._table.lock() {
+                Ok(table) => Ok(table
+                    .get_file_uris()
+                    .map_err(RubyError::from)?
+                    .map(|f| f.to_string())
+                    .collect()),
+                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+            }
         }
     }
 
@@ -379,19 +406,12 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<Vec<String>> {
-        let snapshot = self
-            ._table
-            .borrow()
-            .snapshot()
-            .cloned()
-            .map_err(RubyError::from)
-            .map_err(RbErr::from)?;
-        let mut cmd = VacuumBuilder::new(
-            self._table.borrow().log_store(),
-            snapshot.snapshot().clone(),
-        )
-        .with_enforce_retention_duration(enforce_retention_duration)
-        .with_dry_run(dry_run);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table
+            .vacuum()
+            .with_enforce_retention_duration(enforce_retention_duration)
+            .with_dry_run(dry_run);
+
         if let Some(retention_period) = retention_hours {
             cmd = cmd.with_retention_period(Duration::hours(retention_period as i64));
         }
@@ -402,7 +422,7 @@ impl RawDeltaTable {
             cmd = cmd.with_commit_properties(commit_properties);
         }
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(metrics.files_deleted)
     }
 
@@ -417,8 +437,11 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let mut cmd = OptimizeBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table
+            .optimize()
             .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get));
+
         if let Some(size) = target_size {
             cmd = cmd.with_target_size(size);
         }
@@ -443,7 +466,7 @@ impl RawDeltaTable {
         cmd = cmd.with_filters(&converted_filters);
 
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
@@ -454,16 +477,26 @@ impl RawDeltaTable {
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
         target_size: Option<u64>,
         max_concurrent_tasks: Option<usize>,
-        max_spill_size: usize,
+        max_spill_size: Option<usize>,
+        max_temp_directory_size: Option<u64>,
         min_commit_interval: Option<u64>,
         writer_properties: Option<RbWriterProperties>,
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let mut cmd = OptimizeBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table
+            .clone()
+            .optimize()
             .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get))
-            .with_max_spill_size(max_spill_size)
             .with_type(OptimizeType::ZOrder(z_order_columns));
+
+        if max_spill_size.is_some() || max_temp_directory_size.is_some() {
+            let session =
+                create_session_state_for_optimize(max_spill_size, max_temp_directory_size);
+            cmd = cmd.with_session_state(Arc::new(session));
+        }
+
         if let Some(size) = target_size {
             cmd = cmd.with_target_size(size);
         }
@@ -488,13 +521,15 @@ impl RawDeltaTable {
         cmd = cmd.with_filters(&converted_filters);
 
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
     pub fn add_columns(&self, fields: RArray) -> RbResult<()> {
         let fields = fields.typecheck::<Obj<Field>>()?;
-        let mut cmd = AddColumnBuilder::new(self._table.borrow().log_store(), self.cloned_state()?);
+
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.add_columns();
 
         let new_fields = fields
             .iter()
@@ -504,7 +539,7 @@ impl RawDeltaTable {
         cmd = cmd.with_fields(new_fields);
 
         let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(())
     }
 
@@ -517,71 +552,76 @@ impl RawDeltaTable {
             .into_iter()
             .map(TableFeatures::try_convert)
             .collect::<RbResult<Vec<_>>>()?;
-        let cmd =
-            AddTableFeatureBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
-                .with_features(feature)
-                .with_allow_protocol_versions_increase(allow_protocol_versions_increase);
+
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let cmd = table
+            .add_feature()
+            .with_features(feature)
+            .with_allow_protocol_versions_increase(allow_protocol_versions_increase);
 
         let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(())
     }
 
     pub fn add_constraints(&self, constraints: HashMap<String, String>) -> RbResult<()> {
-        let mut cmd =
-            ConstraintBuilder::new(self._table.borrow().log_store(), self.cloned_state()?);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.add_constraint();
 
         for (col_name, expression) in constraints {
             cmd = cmd.with_constraint(col_name.clone(), expression.clone());
         }
 
         let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(())
     }
 
     pub fn drop_constraints(&self, name: String, raise_if_not_exists: bool) -> RbResult<()> {
-        let cmd =
-            DropConstraintBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
-                .with_constraint(name)
-                .with_raise_if_not_exists(raise_if_not_exists);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let cmd = table
+            .drop_constraints()
+            .with_constraint(name)
+            .with_raise_if_not_exists(raise_if_not_exists);
 
         let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(())
     }
 
     pub fn load_cdf(
         &self,
-        starting_version: i64,
+        starting_version: Option<i64>,
         ending_version: Option<i64>,
         starting_timestamp: Option<String>,
         ending_timestamp: Option<String>,
         columns: Option<Vec<String>>,
     ) -> RbResult<ArrowArrayStream> {
         let ctx = SessionContext::new();
-        let mut cdf_read =
-            CdfLoadBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
-                .with_starting_version(starting_version);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.scan_cdf();
 
+        if let Some(sv) = starting_version {
+            cmd = cmd.with_starting_version(sv);
+        }
         if let Some(ev) = ending_version {
-            cdf_read = cdf_read.with_ending_version(ev);
+            cmd = cmd.with_ending_version(ev);
         }
         if let Some(st) = starting_timestamp {
             let starting_ts: DateTime<Utc> = DateTime::<Utc>::from_str(&st)
                 .map_err(|pe| RbValueError::new_err(pe.to_string()))?
                 .to_utc();
-            cdf_read = cdf_read.with_starting_timestamp(starting_ts);
+            cmd = cmd.with_starting_timestamp(starting_ts);
         }
         if let Some(et) = ending_timestamp {
             let ending_ts = DateTime::<Utc>::from_str(&et)
                 .map_err(|pe| RbValueError::new_err(pe.to_string()))?
                 .to_utc();
-            cdf_read = cdf_read.with_starting_timestamp(ending_ts);
+            cmd = cmd.with_starting_timestamp(ending_ts);
         }
 
         let table_provider: Arc<dyn TableProvider> =
-            Arc::new(DeltaCdfTableProvider::try_new(cdf_read).map_err(RubyError::from)?);
+            Arc::new(DeltaCdfTableProvider::try_new(cmd).map_err(RubyError::from)?);
 
         let plan = rt()
             .block_on(async {
@@ -630,7 +670,7 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
     ) -> RbResult<RbMergeBuilder> {
         Ok(RbMergeBuilder::new(
-            self._table.borrow().log_store(),
+            self.log_store()?,
             self.cloned_state()?,
             source.0,
             predicate,
@@ -646,7 +686,7 @@ impl RawDeltaTable {
 
     pub fn merge_execute(&self, merge_builder: &RbMergeBuilder) -> RbResult<String> {
         let (table, metrics) = merge_builder.execute().map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(metrics)
     }
 
@@ -657,7 +697,8 @@ impl RawDeltaTable {
         protocol_downgrade_allowed: bool,
         commit_properties: Option<RbCommitProperties>,
     ) -> RbResult<String> {
-        let mut cmd = RestoreBuilder::new(self._table.borrow().log_store(), self.cloned_state()?);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.restore();
         if let Some(val) = target {
             if let Some(version) = Integer::from_value(val) {
                 cmd = cmd.with_version_to_restore(version.to_i64()?)
@@ -679,23 +720,37 @@ impl RawDeltaTable {
         }
 
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
     pub fn history(&self, limit: Option<usize>) -> RbResult<Vec<String>> {
-        let history = rt()
-            .block_on(self._table.borrow().history(limit))
-            .map_err(RubyError::from)?;
+        #[allow(clippy::await_holding_lock)]
+        let history = rt().block_on(async {
+            match self._table.lock() {
+                Ok(table) => table
+                    .history(limit)
+                    .await
+                    .map_err(RubyError::from)
+                    .map_err(RbErr::from),
+                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+            }
+        })?;
         Ok(history
             .map(|c| serde_json::to_string(&c).unwrap())
             .collect())
     }
 
     pub fn update_incremental(&self) -> RbResult<()> {
-        #[allow(deprecated)]
+        #[allow(clippy::await_holding_lock)]
         Ok(rt()
-            .block_on(self._table.borrow_mut().update_incremental(None))
+            .block_on(async {
+                let mut table = self
+                    ._table
+                    .lock()
+                    .map_err(|e| DeltaTableError::Generic(e.to_string()))?;
+                (*table).update_incremental(None).await
+            })
             .map_err(RubyError::from)?)
     }
 
@@ -755,15 +810,59 @@ impl RawDeltaTable {
     }
 
     pub fn create_checkpoint(&self) -> RbResult<()> {
-        rt().block_on(create_checkpoint(&self._table.borrow(), None))
-            .map_err(RubyError::from)?;
+        let operation_id = Uuid::new_v4();
+
+        #[allow(clippy::await_holding_lock)]
+        let _result = rt().block_on(async {
+            match self._table.lock() {
+                Ok(table) => create_checkpoint(&table, Some(operation_id))
+                    .await
+                    .map_err(RubyError::from)
+                    .map_err(RbErr::from),
+                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+            }
+        });
 
         Ok(())
     }
 
     pub fn cleanup_metadata(&self) -> RbResult<()> {
-        rt().block_on(cleanup_metadata(&self._table.borrow(), None))
-            .map_err(RubyError::from)?;
+        let operation_id = Uuid::new_v4();
+
+        #[allow(clippy::await_holding_lock)]
+        let result = rt().block_on(async {
+            match self._table.lock() {
+                Ok(table) => {
+                    let result = cleanup_metadata(&table, Some(operation_id))
+                        .await
+                        .map_err(RubyError::from)
+                        .map_err(RbErr::from)?;
+
+                    let new_state = if result > 0 {
+                        Some(
+                            DeltaTableState::try_new(
+                                &table.log_store(),
+                                table.config.clone(),
+                                table.version(),
+                            )
+                            .await
+                            .map_err(RubyError::from)?,
+                        )
+                    } else {
+                        None
+                    };
+
+                    Ok((result, new_state))
+                }
+                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+            }
+        });
+
+        let (_result, new_state) = result?;
+
+        if new_state.is_some() {
+            self.set_state(new_state)?;
+        }
 
         Ok(())
     }
@@ -792,7 +891,8 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let mut cmd = DeleteBuilder::new(self._table.borrow().log_store(), self.cloned_state()?);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.delete();
         if let Some(predicate) = predicate {
             cmd = cmd.with_predicate(predicate);
         }
@@ -808,7 +908,7 @@ impl RawDeltaTable {
         }
 
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
@@ -817,13 +917,14 @@ impl RawDeltaTable {
         properties: HashMap<String, String>,
         raise_if_not_exists: bool,
     ) -> RbResult<()> {
-        let cmd =
-            SetTablePropertiesBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
-                .with_properties(properties)
-                .with_raise_if_not_exists(raise_if_not_exists);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let cmd = table
+            .set_tbl_properties()
+            .with_properties(properties)
+            .with_raise_if_not_exists(raise_if_not_exists);
 
         let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(())
     }
 
@@ -833,9 +934,8 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let mut cmd =
-            FileSystemCheckBuilder::new(self._table.borrow().log_store(), self.cloned_state()?)
-                .with_dry_run(dry_run);
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.filesystem_check().with_dry_run(dry_run);
 
         if let Some(commit_properties) =
             maybe_create_commit_properties(commit_properties, post_commithook_properties)
@@ -844,7 +944,7 @@ impl RawDeltaTable {
         }
 
         let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self._table.borrow_mut().state = table.state;
+        self.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
@@ -855,6 +955,77 @@ impl RawDeltaTable {
         Ok(rt()
             .block_on(snapshot.transaction_version(log_store.as_ref(), app_id))
             .map_err(RubyError::from)?)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn write(
+        &self,
+        data: RbArrowType<ArrowArrayStreamReader>,
+        mode: String,
+        schema_mode: Option<String>,
+        partition_by: Option<Vec<String>>,
+        predicate: Option<String>,
+        target_file_size: Option<usize>,
+        name: Option<String>,
+        description: Option<String>,
+        configuration: Option<HashMap<String, Option<String>>>,
+        writer_properties: Option<RbWriterProperties>,
+        commit_properties: Option<RbCommitProperties>,
+        post_commithook_properties: Option<RbPostCommitHookProperties>,
+    ) -> RbResult<()> {
+        let table = {
+            let table = self._table.lock().map_err(to_rt_err)?.clone();
+            let batches = data.0.map(|batch| batch.unwrap()).collect::<Vec<_>>();
+
+            let save_mode = mode.parse().map_err(RubyError::from)?;
+            let mut builder = table.write(batches).with_save_mode(save_mode);
+
+            if let Some(schema_mode) = schema_mode {
+                builder = builder.with_schema_mode(schema_mode.parse().map_err(RubyError::from)?);
+            }
+            if let Some(partition_columns) = partition_by {
+                builder = builder.with_partition_columns(partition_columns);
+            }
+
+            if let Some(writer_props) = writer_properties {
+                builder = builder.with_writer_properties(
+                    set_writer_properties(writer_props).map_err(RubyError::from)?,
+                );
+            }
+
+            if let Some(name) = &name {
+                builder = builder.with_table_name(name);
+            };
+
+            if let Some(description) = &description {
+                builder = builder.with_description(description);
+            };
+
+            if let Some(predicate) = predicate {
+                builder = builder.with_replace_where(predicate);
+            };
+
+            if let Some(target_file_size) = target_file_size {
+                builder = builder.with_target_file_size(target_file_size)
+            };
+
+            if let Some(config) = configuration {
+                builder = builder.with_configuration(config);
+            };
+
+            if let Some(commit_properties) =
+                maybe_create_commit_properties(commit_properties, post_commithook_properties)
+            {
+                builder = builder.with_commit_properties(commit_properties);
+            };
+
+            rt().block_on(builder.into_future())
+                .map_err(RubyError::from)
+                .map_err(RbErr::from)
+        }?;
+
+        self.set_state(table.state)?;
+        Ok(())
     }
 }
 
@@ -1141,7 +1312,6 @@ fn write_to_deltalake(
     table_uri: String,
     data: RbArrowType<ArrowArrayStreamReader>,
     mode: String,
-    table: Option<&RawDeltaTable>,
     schema_mode: Option<String>,
     partition_by: Option<Vec<String>>,
     predicate: Option<String>,
@@ -1158,16 +1328,14 @@ fn write_to_deltalake(
     let save_mode = mode.parse().map_err(RubyError::from)?;
 
     let options = storage_options.clone().unwrap_or_default();
-    let table = if let Some(table) = table {
-        DeltaOps(table._table.borrow().clone())
-    } else {
-        let table_url =
-            deltalake::table::builder::ensure_table_uri(&table_uri).map_err(RubyError::from)?;
-        rt().block_on(DeltaOps::try_from_uri_with_storage_options(
-            table_url, options,
+    let table_url =
+        deltalake::table::builder::ensure_table_uri(&table_uri).map_err(RubyError::from)?;
+    let table = rt()
+        .block_on(DeltaTable::try_from_url_with_storage_options(
+            table_url.clone(),
+            options.clone(),
         ))
-        .map_err(RubyError::from)?
-    };
+        .map_err(RubyError::from)?;
 
     let mut builder = table.write(batches).with_save_mode(save_mode);
     if let Some(schema_mode) = schema_mode {
@@ -1249,7 +1417,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     deltalake::gcp::register_handlers(None);
 
     let module = ruby.define_module("DeltaLake")?;
-    module.define_singleton_method("write_deltalake_rust", function!(write_to_deltalake, 15))?;
+    module.define_singleton_method("write_deltalake_rust", function!(write_to_deltalake, 14))?;
     module.define_singleton_method("rust_core_version", function!(rust_core_version, 0))?;
 
     let class = module.define_class("RawDeltaTable", ruby.class_object())?;
@@ -1290,7 +1458,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     )?;
     class.define_method(
         "z_order_optimize",
-        method!(RawDeltaTable::z_order_optimize, 9),
+        method!(RawDeltaTable::z_order_optimize, 10),
     )?;
     class.define_method("add_columns", method!(RawDeltaTable::add_columns, 1))?;
     class.define_method("add_feature", method!(RawDeltaTable::add_feature, 2))?;
@@ -1340,6 +1508,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
         "transaction_version",
         method!(RawDeltaTable::transaction_version, 1),
     )?;
+    class.define_method("write", method!(RawDeltaTable::write, 12))?;
 
     let class = module.define_class("RawDeltaTableMetaData", ruby.class_object())?;
     class.define_method("id", method!(RawDeltaTableMetaData::id, 0))?;

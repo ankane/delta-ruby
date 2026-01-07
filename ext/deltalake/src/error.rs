@@ -32,6 +32,10 @@ create_exception!(DeltaProtocolError, "DeltaProtocolError");
 create_exception!(CommitFailedError, "CommitFailedError");
 create_exception!(SchemaMismatchError, "SchemaMismatchError");
 
+pub(crate) fn to_rt_err(msg: impl ToString) -> RbErr {
+    RbRuntimeError::new_err(msg.to_string())
+}
+
 fn inner_to_rb_err(err: DeltaTableError) -> RbErr {
     match err {
         DeltaTableError::NotATable(msg) => TableNotFoundError::new_err(msg),
@@ -129,4 +133,5 @@ macro_rules! create_builtin_exception {
 create_builtin_exception!(RbException, exception_runtime_error);
 create_builtin_exception!(RbIOError, exception_io_error);
 create_builtin_exception!(RbNotImplementedError, exception_not_imp_error);
+create_builtin_exception!(RbRuntimeError, exception_runtime_error);
 create_builtin_exception!(RbValueError, exception_arg_error);
