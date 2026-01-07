@@ -827,38 +827,40 @@ impl RawDeltaTable {
     }
 
     pub fn cleanup_metadata(&self) -> RbResult<()> {
-        let operation_id = Uuid::new_v4();
+        let (_result, new_state) = {
+            let operation_id = Uuid::new_v4();
 
-        #[allow(clippy::await_holding_lock)]
-        let result = rt().block_on(async {
-            match self._table.lock() {
-                Ok(table) => {
-                    let result = cleanup_metadata(&table, Some(operation_id))
-                        .await
-                        .map_err(RubyError::from)
-                        .map_err(RbErr::from)?;
-
-                    let new_state = if result > 0 {
-                        Some(
-                            DeltaTableState::try_new(
-                                &table.log_store(),
-                                table.config.clone(),
-                                table.version(),
-                            )
+            #[allow(clippy::await_holding_lock)]
+            let result = rt().block_on(async {
+                match self._table.lock() {
+                    Ok(table) => {
+                        let result = cleanup_metadata(&table, Some(operation_id))
                             .await
-                            .map_err(RubyError::from)?,
-                        )
-                    } else {
-                        None
-                    };
+                            .map_err(RubyError::from)
+                            .map_err(RbErr::from)?;
 
-                    Ok((result, new_state))
+                        let new_state = if result > 0 {
+                            Some(
+                                DeltaTableState::try_new(
+                                    &table.log_store(),
+                                    table.config.clone(),
+                                    table.version(),
+                                )
+                                .await
+                                .map_err(RubyError::from)?,
+                            )
+                        } else {
+                            None
+                        };
+
+                        Ok((result, new_state))
+                    }
+                    Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
                 }
-                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
-            }
-        });
+            });
 
-        let (_result, new_state) = result?;
+            result
+        }?;
 
         if new_state.is_some() {
             self.set_state(new_state)?;
