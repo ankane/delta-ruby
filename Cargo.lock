@@ -1992,9 +1992,9 @@ dependencies = [
 
 [[package]]
 name = "deltalake"
-version = "0.30.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "822f8f58cd5a5a436925814138580012fb4fe1e2b522e079c5e1721b243f873d"
+checksum = "2d36980b71991de8f123b6c41e48865bcc3a5e4c70adefe0b3cbdc2352feaab7"
 dependencies = [
  "ctor",
  "delta_kernel",
@@ -2184,7 +2184,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
