@@ -18,7 +18,7 @@ It can take 5-10 minutes to compile the gem.
 
 ## Getting Started
 
-Write data
+Write data from [Polars](https://github.com/ankane/ruby-polars)
 
 ```ruby
 df = Polars::DataFrame.new({"id" => [1, 2], "value" => [3.0, 4.0]})
