@@ -8,31 +8,31 @@ jobs:
         include:
           - platform: x86_64-linux
             target: x86_64-unknown-linux-gnu
-          - platform: x86_64-linux-musl
-            target: x86_64-unknown-linux-musl
-          - platform: aarch64-linux
-            target: aarch64-unknown-linux-gnu
-          - platform: aarch64-linux-musl
-            target: aarch64-unknown-linux-musl
-          - platform: x86_64-darwin
-            target: x86_64-apple-darwin
+          # - platform: x86_64-linux-musl
+          #   target: x86_64-unknown-linux-musl
+          # - platform: aarch64-linux
+          #   target: aarch64-unknown-linux-gnu
+          # - platform: aarch64-linux-musl
+          #   target: aarch64-unknown-linux-musl
+          # - platform: x86_64-darwin
+          #   target: x86_64-apple-darwin
           - platform: arm64-darwin
             target: aarch64-apple-darwin
-          - platform: x64-mingw-ucrt
-            target: x86_64-pc-windows-gnu
+          # - platform: x64-mingw-ucrt
+          #   target: x86_64-pc-windows-gnu
     runs-on: ubuntu-latest
     name: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
-      - run: |
-          cargo install --locked --git https://github.com/ankane/cargo-3pl
-          git clone https://github.com/ankane/3pl-source.git
-          cargo 3pl --target ${{ matrix.target }} --require-files --source 3pl-source > LICENSE-THIRD-PARTY.txt
+      # - run: |
+      #     cargo install --locked --git https://github.com/ankane/cargo-3pl
+      #     git clone https://github.com/ankane/3pl-source.git
+      #     cargo 3pl --target ${{ matrix.target }} --require-files --source 3pl-source > LICENSE-THIRD-PARTY.txt
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.4
       - run: gem install rb_sys
-      - run: rb-sys-dock --ruby-versions 4.0,3.4,3.3,3.2 --platform ${{ matrix.platform }} --build
+      - run: rb-sys-dock --ruby-versions 4.0,3.4 --platform ${{ matrix.platform }} --build
       - uses: actions/upload-artifact@v6
         with:
           name: cross-gem-${{ matrix.platform }}
