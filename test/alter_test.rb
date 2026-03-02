@@ -47,18 +47,18 @@ class AlterTest < Minitest::Test
   def test_add_constraint
     df = Polars::DataFrame.new({"a" => [1, 2, 3]})
     with_table(df) do |dt|
-      error = assert_raises(DeltaLake::DeltaProtocolError) do
+      error = assert_raises(DeltaLake::Error) do
         dt.alter.add_constraint({"a_gt_1" => "a > 1"})
       end
-      assert_match "Check or Invariant (a > 1) violated", error.message
+      assert_match "Invalid data found", error.message
 
       dt.alter.add_constraint({"a_gt_0" => "a > 0"})
 
       df2 = Polars::DataFrame.new({"a" => [4, 5, -1]})
-      error = assert_raises(DeltaLake::DeltaProtocolError) do
+      error = assert_raises(DeltaLake::Error) do
         DeltaLake.write(dt, df2, mode: "append")
       end
-      assert_match "Check or Invariant (a > 0) violated", error.message
+      assert_match "Invalid data found", error.message
     end
   end
 
