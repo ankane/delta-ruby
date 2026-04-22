@@ -576,7 +576,8 @@ impl RawDeltaTable {
     }
 
     pub fn add_feature(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         feature: RArray,
         allow_protocol_versions_increase: bool,
     ) -> RbResult<()> {
@@ -585,14 +586,16 @@ impl RawDeltaTable {
             .map(TableFeatures::try_convert)
             .collect::<RbResult<Vec<_>>>()?;
 
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let cmd = table
-            .add_feature()
-            .with_features(feature)
-            .with_allow_protocol_versions_increase(allow_protocol_versions_increase);
+        let table = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let cmd = table
+                .add_feature()
+                .with_features(feature)
+                .with_allow_protocol_versions_increase(allow_protocol_versions_increase);
 
-        let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(())
     }
 
