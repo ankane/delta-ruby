@@ -2211,6 +2211,7 @@ dependencies = [
  "futures",
  "magnus",
  "num_cpus",
+ "rb-sys",
  "serde",
  "serde_json",
  "tokio",

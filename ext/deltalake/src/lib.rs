@@ -1,6 +1,7 @@
 mod error;
 mod features;
 mod merge;
+mod ruby;
 mod schema;
 mod utils;
 
@@ -47,6 +48,7 @@ use uuid::Uuid;
 use crate::error::{to_rt_err, RbRuntimeError, RbValueError, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
+use crate::ruby::GvlExt;
 use crate::schema::{schema_to_rbobject, Field};
 use crate::utils::rt;
 
@@ -1335,6 +1337,7 @@ impl TryConvert for RbCommitProperties {
 
 #[allow(clippy::too_many_arguments)]
 fn write_to_deltalake(
+    rb: &Ruby,
     table_uri: String,
     data: RbArrowType<ArrowArrayStreamReader>,
     mode: String,
@@ -1350,22 +1353,19 @@ fn write_to_deltalake(
     commit_properties: Option<RbCommitProperties>,
     post_commithook_properties: Option<RbPostCommitHookProperties>,
 ) -> RbResult<()> {
-    let raw_table: DeltaResult<RawDeltaTable> = {
+    let raw_table: DeltaResult<RawDeltaTable> = rb.detach(|| {
         let options = storage_options.clone().unwrap_or_default();
-        let table_url =
-            deltalake::table::builder::ensure_table_uri(&table_uri).map_err(RubyError::from)?;
-        let table = rt()
-            .block_on(DeltaTable::try_from_url_with_storage_options(
-                table_url.clone(),
-                options.clone(),
-            ))
-            .map_err(RubyError::from)?;
+        let table_url = deltalake::table::builder::ensure_table_uri(&table_uri)?;
+        let table = rt().block_on(DeltaTable::try_from_url_with_storage_options(
+            table_url.clone(),
+            options.clone(),
+        ))?;
 
         let raw_table = RawDeltaTable {
             _table: Arc::new(Mutex::new(table)),
         };
         Ok(raw_table)
-    };
+    });
 
     raw_table.map_err(RubyError::from)?.write(
         data,
