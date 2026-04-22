@@ -280,19 +280,21 @@ impl RawDeltaTable {
         ))
     }
 
-    pub fn load_version(&self, version: Version) -> RbResult<()> {
-        #[allow(clippy::await_holding_lock)]
-        rt().block_on(async {
-            let mut table = self
-                ._table
-                .lock()
-                .map_err(|e| RbRuntimeError::new_err(e.to_string()))?;
-            (*table)
-                .load_version(version)
-                .await
-                .map_err(RubyError::from)
-                .map_err(RbErr::from)
+    pub fn load_version(rb: &Ruby, self_: &Self, version: Version) -> RbResult<()> {
+        rb.detach(|| {
+            #[allow(clippy::await_holding_lock)]
+            rt().block_on(async {
+                let mut table = self_
+                    ._table
+                    .lock()
+                    .map_err(|e| RubyError::RuntimeError(e.to_string()))?;
+                (*table)
+                    .load_version(version)
+                    .await
+                    .map_err(RubyError::from)
+            })
         })
+        .map_err(RbErr::from)
     }
 
     pub fn get_latest_version(&self) -> RbResult<Version> {
