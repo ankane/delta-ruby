@@ -4,6 +4,8 @@ use deltalake::{errors::DeltaTableError, ObjectStoreError};
 use magnus::{Error as RbErr, Module, RModule, Ruby};
 use std::borrow::Cow;
 
+use crate::ruby::{RbException, RbIOError, RbNotImplementedError, RbRuntimeError, RbValueError};
+
 macro_rules! create_exception {
     ($type:ident, $name:expr) => {
         pub struct $type {}
@@ -111,25 +113,3 @@ impl From<RubyError> for RbErr {
         }
     }
 }
-
-macro_rules! create_builtin_exception {
-    ($type:ident, $method:ident) => {
-        pub struct $type {}
-
-        impl $type {
-            pub fn new_err<T>(message: T) -> RbErr
-            where
-                T: Into<Cow<'static, str>>,
-            {
-                let ruby = Ruby::get().unwrap();
-                RbErr::new(ruby.$method(), message)
-            }
-        }
-    };
-}
-
-create_builtin_exception!(RbException, exception_runtime_error);
-create_builtin_exception!(RbIOError, exception_io_error);
-create_builtin_exception!(RbNotImplementedError, exception_not_imp_error);
-create_builtin_exception!(RbRuntimeError, exception_runtime_error);
-create_builtin_exception!(RbValueError, exception_arg_error);

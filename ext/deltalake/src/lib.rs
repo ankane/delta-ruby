@@ -45,10 +45,10 @@ use std::sync::{Arc, Mutex};
 use std::time;
 use uuid::Uuid;
 
-use crate::error::{to_rt_err, RbRuntimeError, RbValueError, RubyError};
+use crate::error::{to_rt_err, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
-use crate::ruby::GvlExt;
+use crate::ruby::{GvlExt, RbRuntimeError, RbValueError};
 use crate::schema::{schema_to_rbobject, Field};
 use crate::utils::rt;
 
