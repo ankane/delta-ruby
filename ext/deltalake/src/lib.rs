@@ -963,30 +963,33 @@ impl RawDeltaTable {
     }
 
     pub fn delete(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         predicate: Option<String>,
         writer_properties: Option<RbWriterProperties>,
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let mut cmd = table.delete();
-        if let Some(predicate) = predicate {
-            cmd = cmd.with_predicate(predicate);
-        }
-        if let Some(writer_props) = writer_properties {
-            cmd = cmd.with_writer_properties(
-                set_writer_properties(writer_props).map_err(RubyError::from)?,
-            );
-        }
-        if let Some(commit_properties) =
-            maybe_create_commit_properties(commit_properties, post_commithook_properties)
-        {
-            cmd = cmd.with_commit_properties(commit_properties);
-        }
+        let (table, metrics) = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let mut cmd = table.delete();
+            if let Some(predicate) = predicate {
+                cmd = cmd.with_predicate(predicate);
+            }
+            if let Some(writer_props) = writer_properties {
+                cmd = cmd.with_writer_properties(
+                    set_writer_properties(writer_props).map_err(RubyError::from)?,
+                );
+            }
+            if let Some(commit_properties) =
+                maybe_create_commit_properties(commit_properties, post_commithook_properties)
+            {
+                cmd = cmd.with_commit_properties(commit_properties);
+            }
 
-        let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
