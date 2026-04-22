@@ -1149,7 +1149,7 @@ fn set_writer_properties(writer_properties: RbWriterProperties) -> DeltaResult<W
         properties = properties.set_write_batch_size(batch_size);
     }
     if let Some(row_group_size) = max_row_group_size {
-        properties = properties.set_max_row_group_size(row_group_size);
+        properties = properties.set_max_row_group_row_count(Some(row_group_size));
     }
     properties = properties.set_statistics_truncate_length(statistics_truncate_length);
 
