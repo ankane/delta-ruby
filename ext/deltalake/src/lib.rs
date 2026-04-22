@@ -903,18 +903,17 @@ impl RawDeltaTable {
         .map_err(RbErr::from)
     }
 
-    pub fn cleanup_metadata(&self) -> RbResult<()> {
-        let (_result, new_state) = {
+    pub fn cleanup_metadata(rb: &Ruby, self_: &Self) -> RbResult<()> {
+        let (_result, new_state) = rb.detach(|| {
             let operation_id = Uuid::new_v4();
 
             #[allow(clippy::await_holding_lock)]
             let result = rt().block_on(async {
-                match self._table.lock() {
+                match self_._table.lock() {
                     Ok(table) => {
                         let result = cleanup_metadata(&table, Some(operation_id))
                             .await
-                            .map_err(RubyError::from)
-                            .map_err(RbErr::from)?;
+                            .map_err(RubyError::from)?;
 
                         let new_state = if result > 0 {
                             Some(
@@ -932,15 +931,15 @@ impl RawDeltaTable {
 
                         Ok((result, new_state))
                     }
-                    Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+                    Err(e) => Err(RubyError::RuntimeError(e.to_string())),
                 }
             });
 
             result
-        }?;
+        })?;
 
         if new_state.is_some() {
-            self.set_state(new_state)?;
+            self_.set_state(new_state)?;
         }
 
         Ok(())
