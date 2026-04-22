@@ -12,15 +12,15 @@ use deltalake::arrow::record_batch::RecordBatchIterator;
 use deltalake::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::datafusion::catalog::TableProvider;
 use deltalake::datafusion::prelude::SessionContext;
-use deltalake::delta_datafusion::DeltaCdfTableProvider;
+use deltalake::delta_datafusion::{create_session_state_with_spill_config, DeltaCdfTableProvider};
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::transaction::{CommitProperties, TableReference};
 use deltalake::kernel::{scalars::ScalarExt, Transaction};
-use deltalake::kernel::{EagerSnapshot, StructDataExt};
+use deltalake::kernel::{EagerSnapshot, StructDataExt, Version};
 use deltalake::logstore::IORuntime;
 use deltalake::logstore::LogStoreRef;
 use deltalake::operations::collect_sendable_stream;
-use deltalake::operations::optimize::{create_session_state_for_optimize, OptimizeType};
+use deltalake::operations::optimize::OptimizeType;
 use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
@@ -38,6 +38,7 @@ use magnus::{
 use serde_json::Map;
 use std::collections::{HashMap, HashSet};
 use std::future::IntoFuture;
+use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time;
@@ -111,6 +112,24 @@ impl RawDeltaTableMetaData {
 
 type StringVec = Vec<String>;
 
+const MAX_OPTIMIZE_TARGET_SIZE: u64 = i64::MAX as u64;
+
+fn parse_optimize_target_size(target_size: u64) -> RbResult<NonZeroU64> {
+    let target_size = NonZeroU64::new(target_size).ok_or_else(|| {
+        RbValueError::new_err(format!(
+            "target_file_size must be between 1 and {MAX_OPTIMIZE_TARGET_SIZE}"
+        ))
+    })?;
+
+    if target_size.get() > MAX_OPTIMIZE_TARGET_SIZE {
+        return Err(RbValueError::new_err(format!(
+            "target_file_size must be between 1 and {MAX_OPTIMIZE_TARGET_SIZE}"
+        )));
+    }
+
+    Ok(target_size)
+}
+
 impl RawDeltaTable {
     fn with_table<T>(&self, func: impl Fn(&deltalake::DeltaTable) -> RbResult<T>) -> RbResult<T> {
         match self._table.lock() {
@@ -146,7 +165,7 @@ impl RawDeltaTable {
 impl RawDeltaTable {
     pub fn new(
         table_uri: String,
-        version: Option<i64>,
+        version: Option<Version>,
         storage_options: Option<HashMap<String, String>>,
         without_files: bool,
         log_buffer_size: Option<usize>,
@@ -203,7 +222,7 @@ impl RawDeltaTable {
         self.with_table(|t| Ok(t.table_url().to_string()))
     }
 
-    pub fn version(&self) -> RbResult<Option<i64>> {
+    pub fn version(&self) -> RbResult<Option<Version>> {
         self.with_table(|t| Ok(t.version()))
     }
 
@@ -220,7 +239,7 @@ impl RawDeltaTable {
             id: metadata.id().to_string(),
             name: metadata.name().map(String::from),
             description: metadata.description().map(String::from),
-            partition_columns: metadata.partition_columns().clone(),
+            partition_columns: metadata.partition_columns().to_vec(),
             created_time: metadata.created_time(),
             configuration: metadata.configuration().clone(),
         })
@@ -255,7 +274,7 @@ impl RawDeltaTable {
         ))
     }
 
-    pub fn load_version(&self, version: i64) -> RbResult<()> {
+    pub fn load_version(&self, version: Version) -> RbResult<()> {
         #[allow(clippy::await_holding_lock)]
         rt().block_on(async {
             let mut table = self
@@ -270,7 +289,7 @@ impl RawDeltaTable {
         })
     }
 
-    pub fn get_latest_version(&self) -> RbResult<i64> {
+    pub fn get_latest_version(&self) -> RbResult<Version> {
         #[allow(clippy::await_holding_lock)]
         rt().block_on(async {
             match self._table.lock() {
@@ -442,8 +461,9 @@ impl RawDeltaTable {
             .optimize()
             .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get));
 
-        if let Some(size) = target_size {
-            cmd = cmd.with_target_size(size);
+        if let Some(target_size) = target_size {
+            let target_size = parse_optimize_target_size(target_size)?;
+            cmd = cmd.with_target_size(target_size);
         }
         if let Some(commit_interval) = min_commit_interval {
             cmd = cmd.with_min_commit_interval(time::Duration::from_secs(commit_interval));
@@ -493,12 +513,13 @@ impl RawDeltaTable {
 
         if max_spill_size.is_some() || max_temp_directory_size.is_some() {
             let session =
-                create_session_state_for_optimize(max_spill_size, max_temp_directory_size);
+                create_session_state_with_spill_config(max_spill_size, max_temp_directory_size);
             cmd = cmd.with_session_state(Arc::new(session));
         }
 
-        if let Some(size) = target_size {
-            cmd = cmd.with_target_size(size);
+        if let Some(target_size) = target_size {
+            let target_size = parse_optimize_target_size(target_size)?;
+            cmd = cmd.with_target_size(target_size);
         }
         if let Some(commit_interval) = min_commit_interval {
             cmd = cmd.with_min_commit_interval(time::Duration::from_secs(commit_interval));
@@ -591,8 +612,8 @@ impl RawDeltaTable {
 
     pub fn load_cdf(
         &self,
-        starting_version: Option<i64>,
-        ending_version: Option<i64>,
+        starting_version: Option<Version>,
+        ending_version: Option<Version>,
         starting_timestamp: Option<String>,
         ending_timestamp: Option<String>,
         columns: Option<Vec<String>>,
@@ -701,7 +722,7 @@ impl RawDeltaTable {
         let mut cmd = table.restore();
         if let Some(val) = target {
             if let Some(version) = Integer::from_value(val) {
-                cmd = cmd.with_version_to_restore(version.to_i64()?)
+                cmd = cmd.with_version_to_restore(version.to_u64()?)
             }
             if let Ok(ds) = String::try_convert(val) {
                 let datetime = DateTime::<Utc>::from(
@@ -967,7 +988,7 @@ impl RawDeltaTable {
         schema_mode: Option<String>,
         partition_by: Option<Vec<String>>,
         predicate: Option<String>,
-        target_file_size: Option<usize>,
+        target_file_size: Option<u64>,
         name: Option<String>,
         description: Option<String>,
         configuration: Option<HashMap<String, Option<String>>>,
@@ -1008,7 +1029,10 @@ impl RawDeltaTable {
             };
 
             if let Some(target_file_size) = target_file_size {
-                builder = builder.with_target_file_size(target_file_size)
+                let target_file_size = NonZeroU64::new(target_file_size).ok_or_else(|| {
+                    RbValueError::new_err("target_file_size must be greater than 0")
+                })?;
+                builder = builder.with_target_file_size(Some(target_file_size))
             };
 
             if let Some(config) = configuration {
@@ -1317,7 +1341,7 @@ fn write_to_deltalake(
     schema_mode: Option<String>,
     partition_by: Option<Vec<String>>,
     predicate: Option<String>,
-    target_file_size: Option<usize>,
+    target_file_size: Option<u64>,
     name: Option<String>,
     description: Option<String>,
     configuration: Option<HashMap<String, Option<String>>>,
@@ -1365,7 +1389,9 @@ fn write_to_deltalake(
     };
 
     if let Some(target_file_size) = target_file_size {
-        builder = builder.with_target_file_size(target_file_size)
+        let target_file_size = NonZeroU64::new(target_file_size)
+            .ok_or_else(|| RbValueError::new_err("target_file_size must be greater than 0"))?;
+        builder = builder.with_target_file_size(Some(target_file_size))
     };
 
     if let Some(config) = configuration {

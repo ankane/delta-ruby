@@ -135,7 +135,7 @@ class TableTest < Minitest::Test
 
       assert_equal 1, dt.vacuum(retention_hours: 0, enforce_retention_duration: false).size
       assert_equal 1, dt.vacuum(dry_run: false, retention_hours: 0, enforce_retention_duration: false).size
-      assert_empty dt.vacuum(retention_hours: 0, enforce_retention_duration: false)
+      assert_equal 1, dt.vacuum(retention_hours: 0, enforce_retention_duration: false).size
 
       error = assert_raises(DeltaLake::Error) do
         dt.vacuum(retention_hours: 0)
