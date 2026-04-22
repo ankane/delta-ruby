@@ -599,16 +599,22 @@ impl RawDeltaTable {
         Ok(())
     }
 
-    pub fn add_constraints(&self, constraints: HashMap<String, String>) -> RbResult<()> {
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let mut cmd = table.add_constraint();
+    pub fn add_constraints(
+        rb: &Ruby,
+        self_: &Self,
+        constraints: HashMap<String, String>,
+    ) -> RbResult<()> {
+        let table = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let mut cmd = table.add_constraint();
 
-        for (col_name, expression) in constraints {
-            cmd = cmd.with_constraint(col_name.clone(), expression.clone());
-        }
+            for (col_name, expression) in constraints {
+                cmd = cmd.with_constraint(col_name.clone(), expression.clone());
+            }
 
-        let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(())
     }
 
