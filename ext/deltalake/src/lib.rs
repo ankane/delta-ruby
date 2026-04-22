@@ -140,6 +140,16 @@ impl RawDeltaTable {
         }
     }
 
+    fn with_table2<T>(
+        &self,
+        func: impl Fn(&deltalake::DeltaTable) -> Result<T, RubyError>,
+    ) -> Result<T, RubyError> {
+        match self._table.lock() {
+            Ok(table) => func(&table),
+            Err(e) => Err(RubyError::RuntimeError(e.to_string())),
+        }
+    }
+
     fn cloned_state(&self) -> RbResult<EagerSnapshot> {
         self.with_table(|t| {
             t.snapshot()
@@ -357,37 +367,39 @@ impl RawDeltaTable {
     }
 
     pub fn files(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
     ) -> RbResult<Vec<String>> {
-        if !self.has_files()? {
+        if !self_.has_files()? {
             return Err(DeltaError::new_err("Table is instantiated without files."));
         }
-
-        if let Some(filters) = partition_filters {
-            let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
-            Ok(self
-                .with_table(|t| {
-                    rt().block_on(async {
-                        t.get_files_by_partitions(&filters)
-                            .await
-                            .map_err(RubyError::from)
-                            .map_err(RbErr::from)
-                    })
-                })?
-                .into_iter()
-                .map(|p| p.to_string())
-                .collect())
-        } else {
-            match self._table.lock() {
-                Ok(table) => Ok(table
-                    .get_file_uris()
-                    .map_err(RubyError::from)?
-                    .map(|f| f.to_string())
-                    .collect()),
-                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
+        rb.detach(|| {
+            if let Some(filters) = partition_filters {
+                let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
+                Ok(self_
+                    .with_table2(|t| {
+                        rt().block_on(async {
+                            t.get_files_by_partitions(&filters)
+                                .await
+                                .map_err(RubyError::from)
+                        })
+                    })?
+                    .into_iter()
+                    .map(|p| p.to_string())
+                    .collect())
+            } else {
+                match self_._table.lock() {
+                    Ok(table) => Ok(table
+                        .get_file_uris()
+                        .map_err(RubyError::from)?
+                        .map(|f| f.to_string())
+                        .collect()),
+                    Err(e) => Err(RubyError::RuntimeError(e.to_string())),
+                }
             }
-        }
+        })
+        .map_err(RbErr::from)
     }
 
     pub fn file_uris(
