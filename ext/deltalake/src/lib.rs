@@ -116,23 +116,7 @@ type StringVec = Vec<String>;
 
 const MAX_OPTIMIZE_TARGET_SIZE: u64 = i64::MAX as u64;
 
-fn parse_optimize_target_size(target_size: u64) -> RbResult<NonZeroU64> {
-    let target_size = NonZeroU64::new(target_size).ok_or_else(|| {
-        RbValueError::new_err(format!(
-            "target_file_size must be between 1 and {MAX_OPTIMIZE_TARGET_SIZE}"
-        ))
-    })?;
-
-    if target_size.get() > MAX_OPTIMIZE_TARGET_SIZE {
-        return Err(RbValueError::new_err(format!(
-            "target_file_size must be between 1 and {MAX_OPTIMIZE_TARGET_SIZE}"
-        )));
-    }
-
-    Ok(target_size)
-}
-
-fn parse_optimize_target_size2(target_size: u64) -> Result<NonZeroU64, RubyError> {
+fn parse_optimize_target_size(target_size: u64) -> Result<NonZeroU64, RubyError> {
     let target_size = NonZeroU64::new(target_size).ok_or_else(|| {
         RubyError::ValueError(format!(
             "target_file_size must be between 1 and {MAX_OPTIMIZE_TARGET_SIZE}"
@@ -505,7 +489,7 @@ impl RawDeltaTable {
                 .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get));
 
             if let Some(target_size) = target_size {
-                let target_size = parse_optimize_target_size2(target_size)?;
+                let target_size = parse_optimize_target_size(target_size)?;
                 cmd = cmd.with_target_size(target_size);
             }
             if let Some(commit_interval) = min_commit_interval {
@@ -537,7 +521,8 @@ impl RawDeltaTable {
 
     #[allow(clippy::too_many_arguments)]
     pub fn z_order_optimize(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         z_order_columns: Vec<String>,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
         target_size: Option<u64>,
@@ -549,45 +534,48 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<String> {
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let mut cmd = table
-            .clone()
-            .optimize()
-            .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get))
-            .with_type(OptimizeType::ZOrder(z_order_columns));
+        let (table, metrics) = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let mut cmd = table
+                .clone()
+                .optimize()
+                .with_max_concurrent_tasks(max_concurrent_tasks.unwrap_or_else(num_cpus::get))
+                .with_type(OptimizeType::ZOrder(z_order_columns));
 
-        if max_spill_size.is_some() || max_temp_directory_size.is_some() {
-            let session =
-                create_session_state_with_spill_config(max_spill_size, max_temp_directory_size);
-            cmd = cmd.with_session_state(Arc::new(session));
-        }
+            if max_spill_size.is_some() || max_temp_directory_size.is_some() {
+                let session =
+                    create_session_state_with_spill_config(max_spill_size, max_temp_directory_size);
+                cmd = cmd.with_session_state(Arc::new(session));
+            }
 
-        if let Some(target_size) = target_size {
-            let target_size = parse_optimize_target_size(target_size)?;
-            cmd = cmd.with_target_size(target_size);
-        }
-        if let Some(commit_interval) = min_commit_interval {
-            cmd = cmd.with_min_commit_interval(time::Duration::from_secs(commit_interval));
-        }
+            if let Some(target_size) = target_size {
+                let target_size = parse_optimize_target_size(target_size)?;
+                cmd = cmd.with_target_size(target_size);
+            }
+            if let Some(commit_interval) = min_commit_interval {
+                cmd = cmd.with_min_commit_interval(time::Duration::from_secs(commit_interval));
+            }
 
-        if let Some(writer_props) = writer_properties {
-            cmd = cmd.with_writer_properties(
-                set_writer_properties(writer_props).map_err(RubyError::from)?,
-            );
-        }
+            if let Some(writer_props) = writer_properties {
+                cmd = cmd.with_writer_properties(
+                    set_writer_properties(writer_props).map_err(RubyError::from)?,
+                );
+            }
 
-        if let Some(commit_properties) =
-            maybe_create_commit_properties(commit_properties, post_commithook_properties)
-        {
-            cmd = cmd.with_commit_properties(commit_properties);
-        }
+            if let Some(commit_properties) =
+                maybe_create_commit_properties(commit_properties, post_commithook_properties)
+            {
+                cmd = cmd.with_commit_properties(commit_properties);
+            }
 
-        let converted_filters = convert_partition_filters(partition_filters.unwrap_or_default())
-            .map_err(RubyError::from)?;
-        cmd = cmd.with_filters(&converted_filters);
+            let converted_filters =
+                convert_partition_filters(partition_filters.unwrap_or_default())
+                    .map_err(RubyError::from)?;
+            cmd = cmd.with_filters(&converted_filters);
 
-        let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
