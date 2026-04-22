@@ -206,7 +206,7 @@ impl RawDeltaTable {
             }
 
             let table = rt().block_on(builder.load()).map_err(RubyError::from)?;
-            Ok::<RawDeltaTable, RubyError>(RawDeltaTable {
+            Ok::<_, RubyError>(RawDeltaTable {
                 _table: Arc::new(Mutex::new(table)),
             })
         })
