@@ -38,6 +38,10 @@ pub(crate) fn to_rt_err(msg: impl ToString) -> RbErr {
     RbRuntimeError::new_err(msg.to_string())
 }
 
+pub(crate) fn to_rt_err2(msg: impl ToString) -> RubyError {
+    RubyError::ThreadingError(msg.to_string())
+}
+
 fn inner_to_rb_err(err: DeltaTableError) -> RbErr {
     match err {
         DeltaTableError::NotATable(msg) => TableNotFoundError::new_err(msg),
@@ -91,6 +95,7 @@ fn datafusion_to_rb(err: DataFusionError) -> RbErr {
 pub enum RubyError {
     DeltaTable(DeltaTableError),
     DataFusion(DataFusionError),
+    ThreadingError(String),
 }
 
 impl From<DeltaTableError> for RubyError {
@@ -110,6 +115,7 @@ impl From<RubyError> for RbErr {
         match value {
             RubyError::DeltaTable(err) => inner_to_rb_err(err),
             RubyError::DataFusion(err) => datafusion_to_rb(err),
+            RubyError::ThreadingError(err) => RbRuntimeError::new_err(err),
         }
     }
 }

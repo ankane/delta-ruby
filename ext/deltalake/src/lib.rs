@@ -45,7 +45,7 @@ use std::sync::{Arc, Mutex};
 use std::time;
 use uuid::Uuid;
 
-use crate::error::{to_rt_err, RubyError};
+use crate::error::{to_rt_err, to_rt_err2, RubyError};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
 use crate::ruby::{GvlExt, RbRuntimeError, RbValueError};
@@ -420,30 +420,34 @@ impl RawDeltaTable {
     }
 
     pub fn vacuum(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         dry_run: bool,
         retention_hours: Option<u64>,
         enforce_retention_duration: bool,
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<Vec<String>> {
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let mut cmd = table
-            .vacuum()
-            .with_enforce_retention_duration(enforce_retention_duration)
-            .with_dry_run(dry_run);
+        let (table, metrics) = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let mut cmd = table
+                .vacuum()
+                .with_enforce_retention_duration(enforce_retention_duration)
+                .with_dry_run(dry_run);
 
-        if let Some(retention_period) = retention_hours {
-            cmd = cmd.with_retention_period(Duration::hours(retention_period as i64));
-        }
+            if let Some(retention_period) = retention_hours {
+                cmd = cmd.with_retention_period(Duration::hours(retention_period as i64));
+            }
 
-        if let Some(commit_properties) =
-            maybe_create_commit_properties(commit_properties, post_commithook_properties)
-        {
-            cmd = cmd.with_commit_properties(commit_properties);
-        }
-        let (table, metrics) = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            if let Some(commit_properties) =
+                maybe_create_commit_properties(commit_properties, post_commithook_properties)
+            {
+                cmd = cmd.with_commit_properties(commit_properties);
+            }
+
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(metrics.files_deleted)
     }
 
