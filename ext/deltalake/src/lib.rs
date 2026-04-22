@@ -335,23 +335,25 @@ impl RawDeltaTable {
         })
     }
 
-    pub fn load_with_datetime(&self, ds: String) -> RbResult<()> {
-        let datetime =
-            DateTime::<Utc>::from(DateTime::<FixedOffset>::parse_from_rfc3339(&ds).map_err(
-                |err| RbValueError::new_err(format!("Failed to parse datetime string: {err}")),
-            )?);
-        #[allow(clippy::await_holding_lock)]
-        rt().block_on(async {
-            let mut table = self
-                ._table
-                .lock()
-                .map_err(|e| RbRuntimeError::new_err(e.to_string()))?;
-            (*table)
-                .load_with_datetime(datetime)
-                .await
-                .map_err(RubyError::from)
-                .map_err(RbErr::from)
+    pub fn load_with_datetime(rb: &Ruby, self_: &Self, ds: String) -> RbResult<()> {
+        rb.detach(|| {
+            let datetime =
+                DateTime::<Utc>::from(DateTime::<FixedOffset>::parse_from_rfc3339(&ds).map_err(
+                    |err| RubyError::ValueError(format!("Failed to parse datetime string: {err}")),
+                )?);
+            #[allow(clippy::await_holding_lock)]
+            rt().block_on(async {
+                let mut table = self_
+                    ._table
+                    .lock()
+                    .map_err(|e| RubyError::RuntimeError(e.to_string()))?;
+                (*table)
+                    .load_with_datetime(datetime)
+                    .await
+                    .map_err(RubyError::from)
+            })
         })
+        .map_err(RbErr::from)
     }
 
     pub fn files(
@@ -1063,7 +1065,7 @@ impl RawDeltaTable {
 
             if let Some(target_file_size) = target_file_size {
                 let target_file_size = NonZeroU64::new(target_file_size).ok_or_else(|| {
-                    RubyError::ValueError("target_file_size must be greater than 0")
+                    RubyError::ValueError("target_file_size must be greater than 0".to_string())
                 })?;
                 builder = builder.with_target_file_size(Some(target_file_size))
             };

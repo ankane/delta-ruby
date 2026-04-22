@@ -95,10 +95,9 @@ fn datafusion_to_rb(err: DataFusionError) -> RbErr {
 pub enum RubyError {
     DeltaTable(DeltaTableError),
     DataFusion(DataFusionError),
-    ThreadingError(String),
     // Ruby-specific errors for when GVL released
     RuntimeError(String),
-    ValueError(&'static str),
+    ValueError(String),
 }
 
 impl From<DeltaTableError> for RubyError {
@@ -118,8 +117,7 @@ impl From<RubyError> for RbErr {
         match value {
             RubyError::DeltaTable(err) => inner_to_rb_err(err),
             RubyError::DataFusion(err) => datafusion_to_rb(err),
-            RubyError::ThreadingError(err) => RbRuntimeError::new_err(err),
-            RubyError::RuntimeError(err) => RbValueError::new_err(err),
+            RubyError::RuntimeError(err) => RbRuntimeError::new_err(err),
             RubyError::ValueError(err) => RbValueError::new_err(err),
         }
     }
