@@ -166,37 +166,41 @@ impl RawDeltaTable {
 
 impl RawDeltaTable {
     pub fn new(
+        rb: &Ruby,
         table_uri: String,
         version: Option<Version>,
         storage_options: Option<HashMap<String, String>>,
         without_files: bool,
         log_buffer_size: Option<usize>,
     ) -> RbResult<Self> {
-        let table_url = deltalake::table::builder::parse_table_uri(table_uri)
-            .map_err(error::RubyError::from)?;
-        let mut builder = deltalake::DeltaTableBuilder::from_url(table_url)
-            .map_err(error::RubyError::from)?
-            .with_io_runtime(IORuntime::default());
+        rb.detach(|| {
+            let table_url = deltalake::table::builder::parse_table_uri(table_uri)
+                .map_err(error::RubyError::from)?;
+            let mut builder = deltalake::DeltaTableBuilder::from_url(table_url)
+                .map_err(error::RubyError::from)?
+                .with_io_runtime(IORuntime::default());
 
-        if let Some(storage_options) = storage_options {
-            builder = builder.with_storage_options(storage_options)
-        }
-        if let Some(version) = version {
-            builder = builder.with_version(version)
-        }
-        if without_files {
-            builder = builder.without_files()
-        }
-        if let Some(buf_size) = log_buffer_size {
-            builder = builder
-                .with_log_buffer_size(buf_size)
-                .map_err(RubyError::from)?;
-        }
+            if let Some(storage_options) = storage_options {
+                builder = builder.with_storage_options(storage_options)
+            }
+            if let Some(version) = version {
+                builder = builder.with_version(version)
+            }
+            if without_files {
+                builder = builder.without_files()
+            }
+            if let Some(buf_size) = log_buffer_size {
+                builder = builder
+                    .with_log_buffer_size(buf_size)
+                    .map_err(RubyError::from)?;
+            }
 
-        let table = rt().block_on(builder.load()).map_err(RubyError::from)?;
-        Ok(RawDeltaTable {
-            _table: Arc::new(Mutex::new(table)),
+            let table = rt().block_on(builder.load()).map_err(RubyError::from)?;
+            Ok::<RawDeltaTable, RubyError>(RawDeltaTable {
+                _table: Arc::new(Mutex::new(table)),
+            })
         })
+        .map_err(RbErr::from)
     }
 
     pub fn is_deltatable(
