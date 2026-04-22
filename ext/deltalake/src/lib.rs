@@ -297,18 +297,17 @@ impl RawDeltaTable {
         .map_err(RbErr::from)
     }
 
-    pub fn get_latest_version(&self) -> RbResult<Version> {
-        #[allow(clippy::await_holding_lock)]
-        rt().block_on(async {
-            match self._table.lock() {
-                Ok(table) => table
-                    .get_latest_version()
-                    .await
-                    .map_err(RubyError::from)
-                    .map_err(RbErr::from),
-                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
-            }
+    pub fn get_latest_version(rb: &Ruby, self_: &Self) -> RbResult<Version> {
+        rb.detach(|| {
+            #[allow(clippy::await_holding_lock)]
+            rt().block_on(async {
+                match self_._table.lock() {
+                    Ok(table) => table.get_latest_version().await.map_err(RubyError::from),
+                    Err(e) => Err(RubyError::RuntimeError(e.to_string())),
+                }
+            })
         })
+        .map_err(RbErr::from)
     }
 
     pub fn get_num_index_cols(&self) -> RbResult<i32> {
