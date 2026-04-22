@@ -618,15 +618,22 @@ impl RawDeltaTable {
         Ok(())
     }
 
-    pub fn drop_constraints(&self, name: String, raise_if_not_exists: bool) -> RbResult<()> {
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let cmd = table
-            .drop_constraints()
-            .with_constraint(name)
-            .with_raise_if_not_exists(raise_if_not_exists);
+    pub fn drop_constraints(
+        rb: &Ruby,
+        self_: &Self,
+        name: String,
+        raise_if_not_exists: bool,
+    ) -> RbResult<()> {
+        let table = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let cmd = table
+                .drop_constraints()
+                .with_constraint(name)
+                .with_raise_if_not_exists(raise_if_not_exists);
 
-        let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(())
     }
 
