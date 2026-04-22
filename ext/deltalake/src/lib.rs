@@ -1009,7 +1009,8 @@ impl RawDeltaTable {
 
     #[allow(clippy::too_many_arguments)]
     pub fn write(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         data: RbArrowType<ArrowArrayStreamReader>,
         mode: String,
         schema_mode: Option<String>,
@@ -1023,8 +1024,8 @@ impl RawDeltaTable {
         commit_properties: Option<RbCommitProperties>,
         post_commithook_properties: Option<RbPostCommitHookProperties>,
     ) -> RbResult<()> {
-        let table = {
-            let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let table = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
             let batches = data.0.map(|batch| batch.unwrap()).collect::<Vec<_>>();
 
             let save_mode = mode.parse().map_err(RubyError::from)?;
@@ -1057,7 +1058,7 @@ impl RawDeltaTable {
 
             if let Some(target_file_size) = target_file_size {
                 let target_file_size = NonZeroU64::new(target_file_size).ok_or_else(|| {
-                    RbValueError::new_err("target_file_size must be greater than 0")
+                    RubyError::ValueError("target_file_size must be greater than 0")
                 })?;
                 builder = builder.with_target_file_size(Some(target_file_size))
             };
@@ -1074,10 +1075,9 @@ impl RawDeltaTable {
 
             rt().block_on(builder.into_future())
                 .map_err(RubyError::from)
-                .map_err(RbErr::from)
-        }?;
+        })?;
 
-        self.set_state(table.state)?;
+        self_.set_state(table.state)?;
         Ok(())
     }
 }
@@ -1392,7 +1392,9 @@ fn write_to_deltalake(
         Ok(raw_table)
     });
 
-    raw_table.map_err(RubyError::from)?.write(
+    RawDeltaTable::write(
+        rb,
+        &raw_table.map_err(RubyError::from)?,
         data,
         mode,
         schema_mode,
