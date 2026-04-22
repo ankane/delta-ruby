@@ -1350,64 +1350,37 @@ fn write_to_deltalake(
     commit_properties: Option<RbCommitProperties>,
     post_commithook_properties: Option<RbPostCommitHookProperties>,
 ) -> RbResult<()> {
-    let batches = data.0.map(|batch| batch.unwrap()).collect::<Vec<_>>();
-    let save_mode = mode.parse().map_err(RubyError::from)?;
+    let raw_table: DeltaResult<RawDeltaTable> = {
+        let options = storage_options.clone().unwrap_or_default();
+        let table_url =
+            deltalake::table::builder::ensure_table_uri(&table_uri).map_err(RubyError::from)?;
+        let table = rt()
+            .block_on(DeltaTable::try_from_url_with_storage_options(
+                table_url.clone(),
+                options.clone(),
+            ))
+            .map_err(RubyError::from)?;
 
-    let options = storage_options.clone().unwrap_or_default();
-    let table_url =
-        deltalake::table::builder::ensure_table_uri(&table_uri).map_err(RubyError::from)?;
-    let table = rt()
-        .block_on(DeltaTable::try_from_url_with_storage_options(
-            table_url.clone(),
-            options.clone(),
-        ))
-        .map_err(RubyError::from)?;
-
-    let mut builder = table.write(batches).with_save_mode(save_mode);
-    if let Some(schema_mode) = schema_mode {
-        builder = builder.with_schema_mode(schema_mode.parse().map_err(RubyError::from)?);
-    }
-    if let Some(partition_columns) = partition_by {
-        builder = builder.with_partition_columns(partition_columns);
-    }
-
-    if let Some(writer_props) = writer_properties {
-        builder = builder
-            .with_writer_properties(set_writer_properties(writer_props).map_err(RubyError::from)?);
-    }
-
-    if let Some(name) = &name {
-        builder = builder.with_table_name(name);
+        let raw_table = RawDeltaTable {
+            _table: Arc::new(Mutex::new(table)),
+        };
+        Ok(raw_table)
     };
 
-    if let Some(description) = &description {
-        builder = builder.with_description(description);
-    };
-
-    if let Some(predicate) = predicate {
-        builder = builder.with_replace_where(predicate);
-    };
-
-    if let Some(target_file_size) = target_file_size {
-        let target_file_size = NonZeroU64::new(target_file_size)
-            .ok_or_else(|| RbValueError::new_err("target_file_size must be greater than 0"))?;
-        builder = builder.with_target_file_size(Some(target_file_size))
-    };
-
-    if let Some(config) = configuration {
-        builder = builder.with_configuration(config);
-    };
-
-    if let Some(commit_properties) =
-        maybe_create_commit_properties(commit_properties, post_commithook_properties)
-    {
-        builder = builder.with_commit_properties(commit_properties);
-    };
-
-    rt().block_on(builder.into_future())
-        .map_err(RubyError::from)?;
-
-    Ok(())
+    raw_table.map_err(RubyError::from)?.write(
+        data,
+        mode,
+        schema_mode,
+        partition_by,
+        predicate,
+        target_file_size,
+        name,
+        description,
+        configuration,
+        writer_properties,
+        commit_properties,
+        post_commithook_properties,
+    )
 }
 
 pub struct RbArrowType<T>(pub T);
