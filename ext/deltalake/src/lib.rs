@@ -884,21 +884,23 @@ impl RawDeltaTable {
         Ok(ruby.ary_from_iter(active_partitions))
     }
 
-    pub fn create_checkpoint(&self) -> RbResult<()> {
-        let operation_id = Uuid::new_v4();
+    pub fn create_checkpoint(rb: &Ruby, self_: &Self) -> RbResult<()> {
+        rb.detach(|| {
+            let operation_id = Uuid::new_v4();
 
-        #[allow(clippy::await_holding_lock)]
-        let _result = rt().block_on(async {
-            match self._table.lock() {
-                Ok(table) => create_checkpoint(&table, Some(operation_id))
-                    .await
-                    .map_err(RubyError::from)
-                    .map_err(RbErr::from),
-                Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
-            }
-        });
+            #[allow(clippy::await_holding_lock)]
+            let _result = rt().block_on(async {
+                match self_._table.lock() {
+                    Ok(table) => create_checkpoint(&table, Some(operation_id))
+                        .await
+                        .map_err(RubyError::from),
+                    Err(e) => Err(RubyError::RuntimeError(e.to_string())),
+                }
+            });
 
-        Ok(())
+            Ok::<_, RubyError>(())
+        })
+        .map_err(RbErr::from)
     }
 
     pub fn cleanup_metadata(&self) -> RbResult<()> {
