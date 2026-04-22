@@ -4,7 +4,7 @@ version = "0.2.9"
 license = "Apache-2.0"
 authors = ["Andrew Kane <andrew@ankane.org>"]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.91.1"
 publish = false
 
 [lib]
