@@ -556,7 +556,7 @@ impl RawDeltaTable {
         let fields = fields
             .into_iter()
             .map(|v| <&Field>::try_convert(v).cloned())
-            .collect::<RbResult<Vec<Field>>>()?;
+            .collect::<RbResult<Vec<_>>>()?;
 
         let table = rb.detach(|| {
             let table = self_._table.lock().map_err(to_rt_err2)?.clone();
