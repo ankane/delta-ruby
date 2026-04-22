@@ -1,4 +1,4 @@
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-04-22)
 
 - Updated `deltalake` to 0.32.0
 - Added support for releasing GVL
