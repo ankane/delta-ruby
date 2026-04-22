@@ -52,6 +52,7 @@ impl PrimitiveType {
 }
 
 #[magnus::wrap(class = "DeltaLake::Field")]
+#[derive(Clone)]
 pub struct Field {
     pub inner: StructField,
 }

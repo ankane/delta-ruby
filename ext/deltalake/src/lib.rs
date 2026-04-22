@@ -33,8 +33,8 @@ use error::DeltaError;
 use futures::future::join_all;
 use futures::TryStreamExt;
 use magnus::{
-    function, method, prelude::*, try_convert::TryConvertOwned, typed_data::Obj, Error as RbErr,
-    Integer, Module, RArray, Ruby, TryConvert, Value,
+    function, method, prelude::*, try_convert::TryConvertOwned, Error as RbErr, Integer, Module,
+    RArray, Ruby, TryConvert, Value,
 };
 use serde_json::Map;
 use std::collections::{HashMap, HashSet};
@@ -552,21 +552,26 @@ impl RawDeltaTable {
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
-    pub fn add_columns(&self, fields: RArray) -> RbResult<()> {
-        let fields = fields.typecheck::<Obj<Field>>()?;
+    pub fn add_columns(rb: &Ruby, self_: &Self, fields: RArray) -> RbResult<()> {
+        let fields = fields
+            .into_iter()
+            .map(|v| <&Field>::try_convert(v).cloned())
+            .collect::<RbResult<Vec<Field>>>()?;
 
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
-        let mut cmd = table.add_columns();
+        let table = rb.detach(|| {
+            let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+            let mut cmd = table.add_columns();
 
-        let new_fields = fields
-            .iter()
-            .map(|v| v.inner.clone())
-            .collect::<Vec<StructField>>();
+            let new_fields = fields
+                .iter()
+                .map(|v| v.inner.clone())
+                .collect::<Vec<StructField>>();
 
-        cmd = cmd.with_fields(new_fields);
+            cmd = cmd.with_fields(new_fields);
 
-        let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
-        self.set_state(table.state)?;
+            rt().block_on(cmd.into_future()).map_err(RubyError::from)
+        })?;
+        self_.set_state(table.state)?;
         Ok(())
     }
 
