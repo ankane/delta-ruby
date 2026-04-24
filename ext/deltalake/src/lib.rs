@@ -1093,6 +1093,30 @@ impl RawDeltaTable {
         Ok(())
     }
 
+    pub fn set_table_name(
+        &self,
+        name: String,
+        commit_properties: Option<RbCommitProperties>,
+        post_commithook_properties: Option<RbPostCommitHookProperties>,
+    ) -> RbResult<()> {
+        let update = TableMetadataUpdate {
+            name: Some(name),
+            description: None,
+        };
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let mut cmd = table.update_table_metadata().with_update(update);
+
+        if let Some(commit_properties) =
+            maybe_create_commit_properties(commit_properties, post_commithook_properties)
+        {
+            cmd = cmd.with_commit_properties(commit_properties);
+        }
+
+        let table = rt().block_on(cmd.into_future()).map_err(RubyError::from)?;
+        self.set_state(table.state)?;
+        Ok(())
+    }
+
     pub fn set_table_description(
         &self,
         description: String,
@@ -1707,6 +1731,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
         "set_table_properties",
         method!(RawDeltaTable::set_table_properties, 2),
     )?;
+    class.define_method("set_table_name", method!(RawDeltaTable::set_table_name, 3))?;
     class.define_method(
         "set_table_description",
         method!(RawDeltaTable::set_table_description, 3),
