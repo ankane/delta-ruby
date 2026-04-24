@@ -26,6 +26,7 @@ use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
 use deltalake::partitions::PartitionFilter;
+use deltalake::protocol::log_compaction::compact_logs;
 use deltalake::table::config::TablePropertiesExt;
 use deltalake::table::state::DeltaTableState;
 use deltalake::{DeltaResult, DeltaTable};
@@ -957,6 +958,34 @@ impl RawDeltaTable {
         .map_err(RbErr::from)
     }
 
+    pub fn compact_logs(
+        rb: &Ruby,
+        self_: &Self,
+        starting_version: u64,
+        ending_version: u64,
+    ) -> RbResult<()> {
+        rb.detach(|| {
+            let operation_id = Uuid::new_v4();
+
+            #[allow(clippy::await_holding_lock)]
+            let result = rt().block_on(async {
+                match self_._table.lock() {
+                    Ok(table) => {
+                        compact_logs(&table, starting_version, ending_version, Some(operation_id))
+                            .await
+                            .map_err(RubyError::from)
+                    }
+                    Err(e) => Err(RubyError::RuntimeError(e.to_string())),
+                }
+            });
+
+            result
+        })
+        .map_err(RbErr::from)?;
+
+        Ok(())
+    }
+
     pub fn cleanup_metadata(rb: &Ruby, self_: &Self) -> RbResult<()> {
         let (_result, new_state) = rb.detach(|| {
             let operation_id = Uuid::new_v4();
@@ -1605,6 +1634,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
         "create_checkpoint",
         method!(RawDeltaTable::create_checkpoint, 0),
     )?;
+    class.define_method("compact_logs", method!(RawDeltaTable::compact_logs, 2))?;
     class.define_method(
         "cleanup_metadata",
         method!(RawDeltaTable::cleanup_metadata, 0),
