@@ -707,6 +707,13 @@ impl RawDeltaTable {
         Ok(())
     }
 
+    pub fn generate(&self) -> RbResult<()> {
+        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        rt().block_on(async { table.generate().await })
+            .map_err(RubyError::from)?;
+        Ok(())
+    }
+
     pub fn load_cdf(
         rb: &Ruby,
         self_: &Self,
@@ -1577,6 +1584,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
         "drop_constraints",
         method!(RawDeltaTable::drop_constraints, 2),
     )?;
+    class.define_method("generate", method!(RawDeltaTable::generate, 0))?;
     class.define_method("load_cdf", method!(RawDeltaTable::load_cdf, 5))?;
     class.define_method(
         "create_merge_builder",
