@@ -6,7 +6,7 @@ mod schema;
 mod utils;
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use delta_kernel::schema::StructField;
+use delta_kernel::schema::{MetadataValue, StructField};
 use delta_kernel::table_properties::DataSkippingNumIndexedCols;
 use deltalake::arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use deltalake::arrow::record_batch::RecordBatchIterator;
@@ -1121,6 +1121,40 @@ impl RawDeltaTable {
             .map_err(RubyError::from)?)
     }
 
+    pub fn set_column_metadata(
+        rb: &Ruby,
+        self_: &Self,
+        field_name: String,
+        metadata: HashMap<String, String>,
+        commit_properties: Option<RbCommitProperties>,
+        post_commithook_properties: Option<RbPostCommitHookProperties>,
+    ) -> RbResult<()> {
+        let table = rb
+            .detach(|| {
+                let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+                let mut cmd = table
+                    .update_field_metadata()
+                    .with_field_name(&field_name)
+                    .with_metadata(
+                        metadata
+                            .iter()
+                            .map(|(k, v)| (k.clone(), MetadataValue::String(v.clone())))
+                            .collect(),
+                    );
+
+                if let Some(commit_properties) =
+                    maybe_create_commit_properties(commit_properties, post_commithook_properties)
+                {
+                    cmd = cmd.with_commit_properties(commit_properties)
+                }
+
+                rt().block_on(cmd.into_future()).map_err(RubyError::from)
+            })
+            .map_err(RbErr::from)?;
+        self_.set_state(table.state)?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn write(
         rb: &Ruby,
@@ -1652,6 +1686,10 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     class.define_method(
         "transaction_version",
         method!(RawDeltaTable::transaction_version, 1),
+    )?;
+    class.define_method(
+        "set_column_metadata",
+        method!(RawDeltaTable::set_column_metadata, 4),
     )?;
     class.define_method("write", method!(RawDeltaTable::write, 12))?;
 
