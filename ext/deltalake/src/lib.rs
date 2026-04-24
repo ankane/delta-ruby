@@ -471,6 +471,49 @@ impl RawDeltaTable {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn update(
+        rb: &Ruby,
+        self_: &Self,
+        updates: HashMap<String, String>,
+        predicate: Option<String>,
+        writer_properties: Option<RbWriterProperties>,
+        safe_cast: bool,
+        commit_properties: Option<RbCommitProperties>,
+        post_commithook_properties: Option<RbPostCommitHookProperties>,
+    ) -> RbResult<String> {
+        let (table, metrics) = rb
+            .detach(|| {
+                let table = self_._table.lock().map_err(to_rt_err2)?.clone();
+                let mut cmd = table.update().with_safe_cast(safe_cast);
+
+                if let Some(writer_props) = writer_properties {
+                    cmd = cmd.with_writer_properties(
+                        set_writer_properties(writer_props).map_err(RubyError::from)?,
+                    );
+                }
+
+                for (col_name, expression) in updates {
+                    cmd = cmd.with_update(col_name.clone(), expression.clone());
+                }
+
+                if let Some(update_predicate) = predicate {
+                    cmd = cmd.with_predicate(update_predicate);
+                }
+
+                if let Some(commit_properties) =
+                    maybe_create_commit_properties(commit_properties, post_commithook_properties)
+                {
+                    cmd = cmd.with_commit_properties(commit_properties);
+                }
+
+                rt().block_on(cmd.into_future()).map_err(RubyError::from)
+            })
+            .map_err(RbErr::from)?;
+        self_.set_state(table.state)?;
+        Ok(serde_json::to_string(&metrics).unwrap())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn compact_optimize(
         rb: &Ruby,
         self_: &Self,
@@ -1515,6 +1558,7 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     class.define_method("file_uris", method!(RawDeltaTable::file_uris, 1))?;
     class.define_method("schema", method!(RawDeltaTable::schema, 0))?;
     class.define_method("vacuum", method!(RawDeltaTable::vacuum, 5))?;
+    class.define_method("update", method!(RawDeltaTable::update, 6))?;
     class.define_method(
         "compact_optimize",
         method!(RawDeltaTable::compact_optimize, 7),
