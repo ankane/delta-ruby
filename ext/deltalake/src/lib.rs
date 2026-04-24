@@ -665,7 +665,8 @@ impl RawDeltaTable {
     }
 
     pub fn load_cdf(
-        &self,
+        rb: &Ruby,
+        self_: &Self,
         starting_version: Option<Version>,
         ending_version: Option<Version>,
         starting_timestamp: Option<String>,
@@ -673,7 +674,7 @@ impl RawDeltaTable {
         columns: Option<Vec<String>>,
     ) -> RbResult<ArrowArrayStream> {
         let ctx = SessionContext::new();
-        let table = self._table.lock().map_err(to_rt_err)?.clone();
+        let table = self_._table.lock().map_err(to_rt_err)?.clone();
         let mut cmd = table.scan_cdf();
 
         if let Some(sv) = starting_version {
@@ -717,18 +718,20 @@ impl RawDeltaTable {
             tasks.push(handle);
         }
 
-        // This is unfortunate.
-        let batches = rt()
-            .block_on(join_all(tasks))
-            .into_iter()
-            .flatten()
-            .collect::<Result<Vec<Vec<_>>, _>>()
-            .unwrap()
-            .into_iter()
-            .flatten()
-            .map(Ok);
-        let batch_iter = RecordBatchIterator::new(batches, plan.schema());
-        let ffi_stream = FFI_ArrowArrayStream::new(Box::new(batch_iter));
+        let ffi_stream = rb.detach(|| {
+            // This is unfortunate.
+            let batches = rt()
+                .block_on(join_all(tasks))
+                .into_iter()
+                .flatten()
+                .collect::<Result<Vec<Vec<_>>, _>>()
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .map(Ok);
+            let batch_iter = RecordBatchIterator::new(batches, plan.schema());
+            FFI_ArrowArrayStream::new(Box::new(batch_iter))
+        });
         Ok(ArrowArrayStream { stream: ffi_stream })
     }
 
