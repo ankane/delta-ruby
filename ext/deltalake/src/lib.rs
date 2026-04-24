@@ -699,26 +699,26 @@ impl RawDeltaTable {
         let table_provider: Arc<dyn TableProvider> =
             Arc::new(DeltaCdfTableProvider::try_new(cmd).map_err(RubyError::from)?);
 
-        let plan = rt()
-            .block_on(async {
-                let mut df = ctx.read_table(table_provider)?;
-                if let Some(columns) = columns {
-                    let cols: Vec<_> = columns.iter().map(|c| c.as_ref()).collect();
-                    df = df.select_columns(&cols)?;
-                }
-                df.create_physical_plan().await
-            })
-            .map_err(RubyError::from)?;
+        rb.detach(|| {
+            let plan = rt()
+                .block_on(async {
+                    let mut df = ctx.read_table(table_provider)?;
+                    if let Some(columns) = columns {
+                        let cols: Vec<_> = columns.iter().map(|c| c.as_ref()).collect();
+                        df = df.select_columns(&cols)?;
+                    }
+                    df.create_physical_plan().await
+                })
+                .map_err(RubyError::from)?;
 
-        let mut tasks = vec![];
-        for p in 0..plan.properties().output_partitioning().partition_count() {
-            let inner_plan = plan.clone();
-            let partition_batch = inner_plan.execute(p, ctx.task_ctx()).unwrap();
-            let handle = rt().spawn(collect_sendable_stream(partition_batch));
-            tasks.push(handle);
-        }
+            let mut tasks = vec![];
+            for p in 0..plan.properties().output_partitioning().partition_count() {
+                let inner_plan = plan.clone();
+                let partition_batch = inner_plan.execute(p, ctx.task_ctx()).unwrap();
+                let handle = rt().spawn(collect_sendable_stream(partition_batch));
+                tasks.push(handle);
+            }
 
-        let ffi_stream = rb.detach(|| {
             // This is unfortunate.
             let batches = rt()
                 .block_on(join_all(tasks))
@@ -730,9 +730,10 @@ impl RawDeltaTable {
                 .flatten()
                 .map(Ok);
             let batch_iter = RecordBatchIterator::new(batches, plan.schema());
-            FFI_ArrowArrayStream::new(Box::new(batch_iter))
-        });
-        Ok(ArrowArrayStream { stream: ffi_stream })
+            let ffi_stream = FFI_ArrowArrayStream::new(Box::new(batch_iter));
+            Ok::<_, RubyError>(ArrowArrayStream { stream: ffi_stream })
+        })
+        .map_err(RbErr::from)
     }
 
     #[allow(clippy::too_many_arguments)]
