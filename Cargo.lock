@@ -2061,9 +2061,9 @@ dependencies = [
 
 [[package]]
 name = "deltalake"
-version = "0.32.0"
+version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fa1982d9e81550676c64169e8e9feaaf8aafb218c88418a1e50642eecd2508e"
+checksum = "8268de472e1692b47d4a3016d3443fa7aa1f24d5a92337ee867204951959c293"
 dependencies = [
  "buoyant_kernel",
  "ctor",
@@ -2116,9 +2116,9 @@ dependencies = [
 
 [[package]]
 name = "deltalake-core"
-version = "0.32.0"
+version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fe744c5c69db390db74a114f7d5e412f1b5d8cc3dcef50bf19599035ad8fff6"
+checksum = "4b6f1d41164959efaaae6d77fc00f9609ec59159ad4d0278924e79a0738f61b0"
 dependencies = [
  "arrow",
  "arrow-arith",
