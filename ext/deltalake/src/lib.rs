@@ -193,13 +193,13 @@ impl RawDeltaTable {
                 .with_io_runtime(IORuntime::default());
 
             if let Some(storage_options) = storage_options {
-                builder = builder.with_storage_options(storage_options)
+                builder = builder.with_storage_options(storage_options);
             }
             if let Some(version) = version {
-                builder = builder.with_version(version)
+                builder = builder.with_version(version);
             }
             if without_files {
-                builder = builder.without_files()
+                builder = builder.without_files();
             }
             if let Some(buf_size) = log_buffer_size {
                 builder = builder
@@ -224,7 +224,7 @@ impl RawDeltaTable {
         let mut builder = deltalake::DeltaTableBuilder::from_url(table_url)
             .map_err(|_| RbValueError::new_err("Failed to create table builder"))?;
         if let Some(storage_options) = storage_options {
-            builder = builder.with_storage_options(storage_options)
+            builder = builder.with_storage_options(storage_options);
         }
         Ok(rt()
             .block_on(async {
@@ -832,7 +832,7 @@ impl RawDeltaTable {
         let mut cmd = table.restore();
         if let Some(val) = target {
             if let Some(version) = Integer::from_value(val) {
-                cmd = cmd.with_version_to_restore(version.to_u64()?)
+                cmd = cmd.with_version_to_restore(version.to_u64()?);
             }
             if let Ok(ds) = String::try_convert(val) {
                 let datetime = DateTime::<Utc>::from(
@@ -840,7 +840,7 @@ impl RawDeltaTable {
                         RbValueError::new_err(format!("Failed to parse datetime string: {err}"))
                     })?,
                 );
-                cmd = cmd.with_datetime_to_restore(datetime)
+                cmd = cmd.with_datetime_to_restore(datetime);
             }
         }
         cmd = cmd.with_ignore_missing_files(ignore_missing_files);
@@ -1194,7 +1194,7 @@ impl RawDeltaTable {
                 if let Some(commit_properties) =
                     maybe_create_commit_properties(commit_properties, post_commithook_properties)
                 {
-                    cmd = cmd.with_commit_properties(commit_properties)
+                    cmd = cmd.with_commit_properties(commit_properties);
                 }
 
                 rt().block_on(cmd.into_future()).map_err(RubyError::from)
@@ -1243,32 +1243,32 @@ impl RawDeltaTable {
 
             if let Some(name) = &name {
                 builder = builder.with_table_name(name);
-            };
+            }
 
             if let Some(description) = &description {
                 builder = builder.with_description(description);
-            };
+            }
 
             if let Some(predicate) = predicate {
                 builder = builder.with_replace_where(predicate);
-            };
+            }
 
             if let Some(target_file_size) = target_file_size {
                 let target_file_size = NonZeroU64::new(target_file_size).ok_or_else(|| {
                     RubyError::ValueError("target_file_size must be greater than 0".to_string())
                 })?;
-                builder = builder.with_target_file_size(Some(target_file_size))
-            };
+                builder = builder.with_target_file_size(Some(target_file_size));
+            }
 
             if let Some(config) = configuration {
                 builder = builder.with_configuration(config);
-            };
+            }
 
             if let Some(commit_properties) =
                 maybe_create_commit_properties(commit_properties, post_commithook_properties)
             {
                 builder = builder.with_commit_properties(commit_properties);
-            };
+            }
 
             rt().block_on(builder.into_future())
                 .map_err(RubyError::from)
@@ -1415,11 +1415,11 @@ fn maybe_create_commit_properties(
             let json_metadata: Map<String, serde_json::Value> =
                 metadata.into_iter().map(|(k, v)| (k, v.into())).collect();
             commit_properties = commit_properties.with_metadata(json_metadata);
-        };
+        }
 
         if let Some(max_retries) = commit_props.max_commit_retries {
             commit_properties = commit_properties.with_max_retries(max_retries);
-        };
+        }
 
         if let Some(app_transactions) = commit_props.app_transactions {
             let app_transactions = app_transactions.iter().map(Transaction::from).collect();
@@ -1429,7 +1429,7 @@ fn maybe_create_commit_properties(
 
     if let Some(post_commit_hook_props) = post_commithook_properties {
         commit_properties =
-            set_post_commithook_properties(commit_properties, post_commit_hook_props)
+            set_post_commithook_properties(commit_properties, post_commit_hook_props);
     }
     Some(commit_properties)
 }

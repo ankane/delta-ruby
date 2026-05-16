@@ -108,11 +108,11 @@ impl RbMergeBuilder {
             Some(cmd) => Some(
                 cmd.when_matched_update(|mut update| {
                     for (column, expression) in updates {
-                        update = update.update(column, expression)
+                        update = update.update(column, expression);
                     }
                     if let Some(predicate) = predicate {
-                        update = update.predicate(predicate)
-                    };
+                        update = update.predicate(predicate);
+                    }
                     update
                 })
                 .map_err(RubyError::from)?,
@@ -128,8 +128,8 @@ impl RbMergeBuilder {
             Some(cmd) => Some(
                 cmd.when_matched_delete(|mut delete| {
                     if let Some(predicate) = predicate {
-                        delete = delete.predicate(predicate)
-                    };
+                        delete = delete.predicate(predicate);
+                    }
                     delete
                 })
                 .map_err(RubyError::from)?,
@@ -149,11 +149,11 @@ impl RbMergeBuilder {
             Some(cmd) => Some(
                 cmd.when_not_matched_insert(|mut insert| {
                     for (column, expression) in updates {
-                        insert = insert.set(column, expression)
+                        insert = insert.set(column, expression);
                     }
                     if let Some(predicate) = predicate {
-                        insert = insert.predicate(predicate)
-                    };
+                        insert = insert.predicate(predicate);
+                    }
                     insert
                 })
                 .map_err(RubyError::from)?,
@@ -173,11 +173,11 @@ impl RbMergeBuilder {
             Some(cmd) => Some(
                 cmd.when_not_matched_by_source_update(|mut update| {
                     for (column, expression) in updates {
-                        update = update.update(column, expression)
+                        update = update.update(column, expression);
                     }
                     if let Some(predicate) = predicate {
-                        update = update.predicate(predicate)
-                    };
+                        update = update.predicate(predicate);
+                    }
                     update
                 })
                 .map_err(RubyError::from)?,
@@ -193,8 +193,8 @@ impl RbMergeBuilder {
             Some(cmd) => Some(
                 cmd.when_not_matched_by_source_delete(|mut delete| {
                     if let Some(predicate) = predicate {
-                        delete = delete.predicate(predicate)
-                    };
+                        delete = delete.predicate(predicate);
+                    }
                     delete
                 })
                 .map_err(RubyError::from)?,
