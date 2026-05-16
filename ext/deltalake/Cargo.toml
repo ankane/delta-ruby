@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 arrow = { version = "58", features = ["ffi"] }
 arrow-schema = { version = "58", features = ["serde"] }
 chrono = "0.4"
-delta_kernel = { package = "buoyant_kernel", version = "0.21", features = ["arrow-58", "default-engine-rustls"] }
+delta_kernel = { package = "buoyant_kernel", version = "0.22", features = ["arrow-58", "default-engine-rustls"] }
 futures = "0.3"
 magnus = "0.8"
 num_cpus = "1"
@@ -26,7 +26,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dependencies.deltalake]
-version = "=0.32.1"
+version = "=0.32.2"
 features = [
     "azure",
     "datafusion",
