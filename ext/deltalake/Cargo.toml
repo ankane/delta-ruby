@@ -10,12 +10,17 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+azure = ["deltalake/azure"]
+gcs = ["deltalake/gcs"]
+s3 = ["deltalake/s3"]
+
 [dependencies]
 arrow = { version = "55", features = ["ffi"] }
 arrow-schema = { version = "55", features = ["serde"] }
 chrono = "0.4"
 delta_kernel = "=0.10.0"
-deltalake = { version = "=0.26.0", features = ["azure", "datafusion", "gcs", "s3"] }
+deltalake = { version = "=0.26.0", features = ["datafusion"] }
 futures = "0.3"
 magnus = "0.7"
 num_cpus = "1"

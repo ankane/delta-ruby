@@ -2,7 +2,7 @@
 
 [Delta Lake](https://delta.io/) for Ruby
 
-Supports local files and Amazon S3
+Supports local files and cloud storage (Amazon S3, Azure Blob Storage, Google Cloud Storage)
 
 [![Build Status](https://github.com/ankane/delta-ruby/actions/workflows/build.yml/badge.svg)](https://github.com/ankane/delta-ruby/actions)
 
@@ -15,6 +15,34 @@ gem "deltalake-rb"
 ```
 
 It can take 5-10 minutes to compile the gem.
+
+Cloud storage support is optional. Enable the backends you need at install time:
+
+```sh
+# Amazon S3
+gem install deltalake-rb -- --enable-s3
+
+# Azure Blob Storage
+gem install deltalake-rb -- --enable-azure
+
+# Google Cloud Storage
+gem install deltalake-rb -- --enable-gcs
+
+# Multiple backends
+gem install deltalake-rb -- --enable-s3 --enable-azure --enable-gcs
+```
+
+Or via environment variables:
+
+```sh
+DELTALAKE_S3=1 DELTALAKE_AZURE=1 DELTALAKE_GCS=1 gem install deltalake-rb
+```
+
+With Bundler, use `bundle config`:
+
+```sh
+bundle config build.deltalake-rb "--enable-s3"
+```
 
 ## Getting Started
 

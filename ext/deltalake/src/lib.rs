@@ -1269,8 +1269,11 @@ impl ArrowArrayStream {
 
 #[magnus::init]
 fn init(ruby: &Ruby) -> RbResult<()> {
+    #[cfg(feature = "s3")]
     deltalake::aws::register_handlers(None);
+    #[cfg(feature = "azure")]
     deltalake::azure::register_handlers(None);
+    #[cfg(feature = "gcs")]
     deltalake::gcp::register_handlers(None);
 
     let module = ruby.define_module("DeltaLake")?;
