@@ -46,6 +46,18 @@ class WriteTest < Minitest::Test
     end
   end
 
+  def test_arrow
+    with_new_table do |table_uri|
+      rows = [{"a" => 1, "b" => "one"}, {"a" => 2, "b" => nil}, {"a" => nil, "b" => "three"}]
+      arr = Nanoarrow::Array.new(rows, Nanoarrow.struct({"a" => Nanoarrow.int64, "b" => Nanoarrow.string}))
+      DeltaLake.write(table_uri, arr)
+
+      dt = DeltaLake::Table.new(table_uri)
+      assert_equal 0, dt.version
+      assert_frame_equal Polars::DataFrame.new(arr), dt.to_polars
+    end
+  end
+
   def test_invalid_data
     with_new_table do |table_uri|
       error = assert_raises(TypeError) do
