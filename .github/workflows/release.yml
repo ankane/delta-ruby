@@ -24,15 +24,15 @@ jobs:
     name: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
-      - run: |
-          cargo install --locked --git https://github.com/ankane/cargo-3pl
-          git clone https://github.com/ankane/3pl-source.git
-          cargo 3pl --target ${{ matrix.target }} --require-files --source 3pl-source > LICENSE-THIRD-PARTY.txt
+      # - run: |
+      #     cargo install --locked --git https://github.com/ankane/cargo-3pl
+      #     git clone https://github.com/ankane/3pl-source.git
+      #     cargo 3pl --target ${{ matrix.target }} --require-files --source 3pl-source > LICENSE-THIRD-PARTY.txt
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
       - run: gem install rb_sys
-      - run: rb-sys-dock --ruby-versions 4.0,3.4,3.3 --platform ${{ matrix.platform }} --build
+      - run: rb-sys-dock --ruby-versions 4.0,3.4 --platform ${{ matrix.platform }} --build
       - uses: actions/upload-artifact@v7
         with:
           name: cross-gem-${{ matrix.platform }}
