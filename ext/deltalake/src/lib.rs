@@ -985,12 +985,9 @@ impl RawDeltaTable {
 
                         let new_state = if result > 0 {
                             Some(
-                                DeltaTableState::try_new(
-                                    &table.log_store(),
-                                    table.version(),
-                                )
-                                .await
-                                .map_err(RubyError::from)?,
+                                DeltaTableState::try_new(&table.log_store(), table.version())
+                                    .await
+                                    .map_err(RubyError::from)?,
                             )
                         } else {
                             None
