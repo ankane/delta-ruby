@@ -26,7 +26,7 @@ use deltalake::operations::update_table_metadata::TableMetadataUpdate;
 use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
-use deltalake::partitions::PartitionFilter;
+use deltalake::partitions::{filter_literal, FilterLiteral, FilterValue};
 use deltalake::protocol::log_compaction::compact_logs;
 use deltalake::table::config::TablePropertiesExt;
 use deltalake::table::state::DeltaTableState;
@@ -182,8 +182,6 @@ impl RawDeltaTable {
         table_uri: String,
         version: Option<Version>,
         storage_options: Option<HashMap<String, String>>,
-        without_files: bool,
-        log_buffer_size: Option<usize>,
     ) -> RbResult<Self> {
         rb.detach(|| {
             let table_url = deltalake::table::builder::parse_table_uri(table_uri)
@@ -198,15 +196,6 @@ impl RawDeltaTable {
             if let Some(version) = version {
                 builder = builder.with_version(version);
             }
-            if without_files {
-                builder = builder.without_files();
-            }
-            if let Some(buf_size) = log_buffer_size {
-                builder = builder
-                    .with_log_buffer_size(buf_size)
-                    .map_err(RubyError::from)?;
-            }
-
             let table = rt().block_on(builder.load()).map_err(RubyError::from)?;
             Ok::<_, RubyError>(RawDeltaTable {
                 _table: Arc::new(Mutex::new(table)),
@@ -242,10 +231,6 @@ impl RawDeltaTable {
 
     pub fn version(&self) -> RbResult<Option<Version>> {
         self.with_table(|t| Ok(t.version()))
-    }
-
-    pub fn has_files(&self) -> RbResult<bool> {
-        self.with_table(|t| Ok(t.config.require_files))
     }
 
     pub fn metadata(&self) -> RbResult<RawDeltaTableMetaData> {
@@ -373,12 +358,10 @@ impl RawDeltaTable {
         self_: &Self,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
     ) -> RbResult<Vec<String>> {
-        if !self_.has_files()? {
-            return Err(DeltaError::new_err("Table is instantiated without files."));
-        }
         rb.detach(|| {
             if let Some(filters) = partition_filters {
-                let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
+                let filters =
+                    convert_partition_filters(filters.as_slice()).map_err(RubyError::from)?;
                 Ok(self_
                     .with_table2(|t| {
                         rt().block_on(async {
@@ -408,12 +391,8 @@ impl RawDeltaTable {
         &self,
         partition_filters: Option<Vec<(String, String, PartitionFilterValue)>>,
     ) -> RbResult<Vec<String>> {
-        if !self.with_table(|t| Ok(t.config.require_files))? {
-            return Err(DeltaError::new_err("Table is initiated without files."));
-        }
-
         if let Some(filters) = partition_filters {
-            let filters = convert_partition_filters(filters).map_err(RubyError::from)?;
+            let filters = convert_partition_filters(filters.as_slice()).map_err(RubyError::from)?;
             self.with_table(|t| {
                 rt().block_on(async {
                     t.get_file_uris_by_partitions(&filters)
@@ -553,9 +532,9 @@ impl RawDeltaTable {
                 cmd = cmd.with_commit_properties(commit_properties);
             }
 
+            let partition_filters = partition_filters.unwrap_or_default();
             let converted_filters =
-                convert_partition_filters(partition_filters.unwrap_or_default())
-                    .map_err(RubyError::from)?;
+                convert_partition_filters(&partition_filters).map_err(RubyError::from)?;
             cmd = cmd.with_filters(&converted_filters);
 
             rt().block_on(cmd.into_future()).map_err(RubyError::from)
@@ -613,9 +592,9 @@ impl RawDeltaTable {
                 cmd = cmd.with_commit_properties(commit_properties);
             }
 
+            let partition_filters = partition_filters.unwrap_or_default();
             let converted_filters =
-                convert_partition_filters(partition_filters.unwrap_or_default())
-                    .map_err(RubyError::from)?;
+                convert_partition_filters(&partition_filters).map_err(RubyError::from)?;
             cmd = cmd.with_filters(&converted_filters);
 
             rt().block_on(cmd.into_future()).map_err(RubyError::from)
@@ -855,21 +834,31 @@ impl RawDeltaTable {
         Ok(serde_json::to_string(&metrics).unwrap())
     }
 
-    pub fn history(&self, limit: Option<usize>) -> RbResult<Vec<String>> {
+    pub fn history(&self, limit: Option<usize>) -> RbResult<(Version, Vec<String>)> {
         #[allow(clippy::await_holding_lock)]
-        let history = rt().block_on(async {
+        rt().block_on(async {
             match self._table.lock() {
-                Ok(table) => table
-                    .history(limit)
-                    .await
-                    .map_err(RubyError::from)
-                    .map_err(RbErr::from),
+                Ok(table) => {
+                    let history: Vec<deltalake::kernel::models::CommitInfo> = table
+                        .history(limit)
+                        .try_collect()
+                        .await
+                        .map_err(RubyError::from)
+                        .map_err(RbErr::from)?;
+                    let version = table.version().ok_or_else(|| {
+                        RbRuntimeError::new_err(
+                            "table snapshot is not loaded; cannot determine history version",
+                        )
+                    })?;
+                    let commits = history
+                        .into_iter()
+                        .map(|c| serde_json::to_string(&c).unwrap())
+                        .collect();
+                    Ok((version, commits))
+                }
                 Err(e) => Err(RbRuntimeError::new_err(e.to_string())),
             }
-        })?;
-        Ok(history
-            .map(|c| serde_json::to_string(&c).unwrap())
-            .collect())
+        })
     }
 
     pub fn update_incremental(&self) -> RbResult<()> {
@@ -902,19 +891,14 @@ impl RawDeltaTable {
             .map(|col| col.as_str())
             .collect();
 
-        let converted_filters = Vec::new();
+        let filter = None;
 
         let partition_columns: Vec<&str> = partition_columns.into_iter().collect();
 
         let state = rb_self.cloned_state()?;
         let log_store = rb_self.log_store()?;
         let adds: Vec<_> = rt()
-            .block_on(async {
-                state
-                    .file_views_by_partitions(&log_store, &converted_filters)
-                    .try_collect()
-                    .await
-            })
+            .block_on(async { state.file_views(&log_store, filter).try_collect().await })
             .map_err(RubyError::from)?;
         let active_partitions: HashSet<Vec<(&str, Option<String>)>> = adds
             .iter()
@@ -1003,7 +987,6 @@ impl RawDeltaTable {
                             Some(
                                 DeltaTableState::try_new(
                                     &table.log_store(),
-                                    table.config.clone(),
                                     table.version(),
                                 )
                                 .await
@@ -1380,23 +1363,18 @@ fn set_writer_properties(writer_properties: RbWriterProperties) -> DeltaResult<W
 }
 
 fn convert_partition_filters(
-    partitions_filters: Vec<(String, String, PartitionFilterValue)>,
-) -> Result<Vec<PartitionFilter>, DeltaTableError> {
+    partitions_filters: &[(String, String, PartitionFilterValue)],
+) -> Result<Vec<FilterLiteral<'_>>, DeltaTableError> {
     partitions_filters
-        .into_iter()
-        .map(|filter| match filter {
-            (key, op, PartitionFilterValue::Single(v)) => {
-                let key: &'_ str = key.as_ref();
-                let op: &'_ str = op.as_ref();
-                let v: &'_ str = v.as_ref();
-                PartitionFilter::try_from((key, op, v))
-            }
-            (key, op, PartitionFilterValue::Multiple(v)) => {
-                let key: &'_ str = key.as_ref();
-                let op: &'_ str = op.as_ref();
-                let v: Vec<&'_ str> = v.iter().map(|v| v.as_ref()).collect();
-                PartitionFilter::try_from((key, op, v.as_slice()))
-            }
+        .iter()
+        .map(|(column, op, value)| {
+            let value = match value {
+                PartitionFilterValue::Single(v) => FilterValue::Scalar(v.as_ref()),
+                PartitionFilterValue::Multiple(vs) => {
+                    FilterValue::Set(vs.iter().map(|v| v.as_ref()).collect())
+                }
+            };
+            filter_literal(column.as_ref(), op.as_ref(), value)
         })
         .collect()
 }
@@ -1646,11 +1624,10 @@ fn init(ruby: &Ruby) -> RbResult<()> {
     module.define_singleton_method("rust_core_version", function!(rust_core_version, 0))?;
 
     let class = module.define_class("RawDeltaTable", ruby.class_object())?;
-    class.define_singleton_method("new", function!(RawDeltaTable::new, 5))?;
+    class.define_singleton_method("new", function!(RawDeltaTable::new, 3))?;
     class.define_singleton_method("is_deltatable", function!(RawDeltaTable::is_deltatable, 2))?;
     class.define_method("table_uri", method!(RawDeltaTable::table_uri, 0))?;
     class.define_method("version", method!(RawDeltaTable::version, 0))?;
-    class.define_method("has_files", method!(RawDeltaTable::has_files, 0))?;
     class.define_method("metadata", method!(RawDeltaTable::metadata, 0))?;
     class.define_method(
         "protocol_versions",

@@ -5,18 +5,14 @@ module DeltaLake
     def initialize(
       table_uri,
       version: nil,
-      storage_options: nil,
-      without_files: false,
-      log_buffer_size: nil
+      storage_options: nil
     )
       @storage_options = storage_options
       @table =
         RawDeltaTable.new(
           table_uri,
           version,
-          storage_options,
-          without_files,
-          log_buffer_size
+          storage_options
         )
     end
 
@@ -98,9 +94,9 @@ module DeltaLake
         end
       end
 
-      commits = @table.history(limit)
+      latest_version, commits = @table.history(limit)
       history = []
-      backwards_enumerate.(commits, @table.get_latest_version) do |version, commit_info_raw|
+      backwards_enumerate.(commits, latest_version) do |version, commit_info_raw|
         commit = JSON.parse(commit_info_raw)
         commit["version"] = version
         history << commit
