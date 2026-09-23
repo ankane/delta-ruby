@@ -18,7 +18,7 @@ chrono = "0.4"
 delta_kernel = { package = "buoyant_kernel", version = "0.28", features = ["arrow-59"] }
 delta_kernel_default_engine = { package = "buoyant_kernel_engine", version = "0.28", features = ["arrow-59", "rustls"] }
 futures = "0.3"
-magnus = "0.8"
+magnus = "0.9"
 num_cpus = "1"
 rb-sys = "0.9"
 serde = "1"
