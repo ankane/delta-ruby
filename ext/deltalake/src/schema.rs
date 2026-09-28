@@ -1,7 +1,7 @@
 use deltalake::kernel::{
     DataType, PrimitiveType as DeltaPrimitive, StructField, StructType as DeltaStructType,
 };
-use magnus::{value::ReprValue, Module, RModule, Ruby, TryConvert, Value};
+use magnus::{Module, RModule, Ruby, TryConvert, Value, value::ReprValue};
 use std::sync::Arc;
 
 use crate::{RbResult, RbValueError};

@@ -13,12 +13,12 @@ use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
+use crate::RbResult;
 use crate::error::RubyError;
 use crate::utils::rt;
-use crate::RbResult;
 use crate::{
-    maybe_create_commit_properties, set_writer_properties, RbCommitProperties,
-    RbPostCommitHookProperties, RbWriterProperties,
+    RbCommitProperties, RbPostCommitHookProperties, RbWriterProperties,
+    maybe_create_commit_properties, set_writer_properties,
 };
 
 #[magnus::wrap(class = "DeltaLake::RbMergeBuilder")]

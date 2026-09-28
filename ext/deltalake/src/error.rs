@@ -1,6 +1,6 @@
 use arrow_schema::ArrowError;
 use deltalake::datafusion::error::DataFusionError;
-use deltalake::{errors::DeltaTableError, ObjectStoreError};
+use deltalake::{ObjectStoreError, errors::DeltaTableError};
 use magnus::{Error as RbErr, Module, RModule, Ruby};
 use std::borrow::Cow;
 

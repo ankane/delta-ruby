@@ -13,11 +13,11 @@ use deltalake::arrow::record_batch::RecordBatchIterator;
 use deltalake::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::datafusion::catalog::TableProvider;
 use deltalake::datafusion::prelude::SessionContext;
-use deltalake::delta_datafusion::{create_session_state_with_spill_config, DeltaCdfTableProvider};
+use deltalake::delta_datafusion::{DeltaCdfTableProvider, create_session_state_with_spill_config};
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::transaction::{CommitProperties, TableReference};
-use deltalake::kernel::{scalars::ScalarExt, Transaction};
 use deltalake::kernel::{EagerSnapshot, StructDataExt, Version};
+use deltalake::kernel::{Transaction, scalars::ScalarExt};
 use deltalake::logstore::IORuntime;
 use deltalake::logstore::LogStoreRef;
 use deltalake::operations::collect_sendable_stream;
@@ -26,17 +26,17 @@ use deltalake::operations::update_table_metadata::TableMetadataUpdate;
 use deltalake::parquet::basic::Compression;
 use deltalake::parquet::errors::ParquetError;
 use deltalake::parquet::file::properties::WriterProperties;
-use deltalake::partitions::{filter_literal, FilterLiteral, FilterValue};
+use deltalake::partitions::{FilterLiteral, FilterValue, filter_literal};
 use deltalake::protocol::log_compaction::compact_logs;
 use deltalake::table::config::TablePropertiesExt;
 use deltalake::table::state::DeltaTableState;
 use deltalake::{DeltaResult, DeltaTable};
 use error::DeltaError;
-use futures::future::join_all;
 use futures::TryStreamExt;
+use futures::future::join_all;
 use magnus::{
-    function, method, prelude::*, try_convert::TryConvertOwned, Error as RbErr, Integer, Module,
-    RArray, Ruby, TryConvert, Value,
+    Error as RbErr, Integer, Module, RArray, Ruby, TryConvert, Value, function, method, prelude::*,
+    try_convert::TryConvertOwned,
 };
 use serde_json::Map;
 use std::collections::{HashMap, HashSet};
@@ -47,11 +47,11 @@ use std::sync::{Arc, Mutex};
 use std::time;
 use uuid::Uuid;
 
-use crate::error::{to_rt_err, to_rt_err2, RubyError};
+use crate::error::{RubyError, to_rt_err, to_rt_err2};
 use crate::features::TableFeatures;
 use crate::merge::RbMergeBuilder;
 use crate::ruby::{GvlExt, RbRuntimeError, RbValueError};
-use crate::schema::{schema_to_rbobject, Field};
+use crate::schema::{Field, schema_to_rbobject};
 use crate::utils::rt;
 
 type RbResult<T> = Result<T, RbErr>;

@@ -1,6 +1,6 @@
 use crate::{RbResult, RbValueError};
 use deltalake::kernel::TableFeatures as KernelTableFeatures;
-use magnus::{prelude::*, TryConvert, Value};
+use magnus::{TryConvert, Value, prelude::*};
 
 /// High level table features
 #[derive(Clone)]
@@ -58,7 +58,8 @@ impl From<TableFeatures> for KernelTableFeatures {
 impl TryConvert for TableFeatures {
     fn try_convert(val: Value) -> RbResult<Self> {
         // TODO add more features
-        let feature = match unsafe { val.to_r_string()?.as_str()? } {
+        let s = val.to_r_string()?;
+        let feature = match unsafe { s.as_str()? } {
             "append_only" => TableFeatures::AppendOnly,
             _ => return Err(RbValueError::new_err("Invalid feature")),
         };

@@ -3,8 +3,8 @@ name = "deltalake-ruby"
 version = "0.3.2"
 license = "Apache-2.0"
 authors = ["Andrew Kane <andrew@ankane.org>"]
-edition = "2021"
-rust-version = "1.91.1"
+edition = "2024"
+rust-version = "1.94.1"
 publish = false
 
 [lib]
@@ -27,7 +27,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dependencies.deltalake]
-version = "=1.0.0"
+version = "=1.1.0"
 features = [
     "azure",
     "datafusion",
